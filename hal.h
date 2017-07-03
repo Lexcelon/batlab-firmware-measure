@@ -35,8 +35,8 @@
 #define REG_TEMP_LIMIT_CHG     0x0E
 #define REG_TEMP_LIMIT_DCHG    0x0F
 
-#define REG_CURRENT_PHS        0x10
-#define REG_VOLTAGE_PHS        0x11
+#define REG_DUTY               0x10
+#define REG_COMPENSATION       0x11
 #define REG_CURRENT_PP         0x12
 #define REG_VOLTAGE_PP         0x13
 
@@ -44,11 +44,11 @@
 #define REG_CURRENT_CALIB_SCA  0x15 //also mapped to EEPROM
 #define REG_TEMP_CALIB_R       0x16 //also mapped to EEPROM
 #define REG_TEMP_CALIB_B       0x17 //also mapped to EEPROM
-#define REG_VOLTAGE_CALIB_OFF  0x18 //also mapped to EEPROM
-#define REG_VOLTAGE_CALIB_SCA  0x19 //also mapped to EEPROM
+#define REG_CURRENT_CALIB_PP   0x18 //also mapped to EEPROM
+#define REG_VOLTAGE_CALIB_PP   0x19 //also mapped to EEPROM
+#define REG_CURR_CALIB_PP_OFF  0x1A //also mapped to EEPROM
+#define REG_VOLT_CALIB_PP_OFF  0x1B //also mapped to EEPROM
 
-#define REG_DUTY               0x1A
-#define REG_COMPENSATION       0x1B
 
 #define CELLREGS_SIZE          0x1C
 
@@ -68,9 +68,13 @@
 #define REG_SINE_MAGDIV        0x08
 #define REG_LED_MESSAGE        0x09
 #define REG_BOOTLOAD           0x0A
+#define REG_VOLT_CH_CALIB_OFF  0x0B //also mapped to EEPROM
+#define REG_VOLT_CH_CALIB_SCA  0x0C //also mapped to EEPROM
+#define REG_VOLT_DC_CALIB_OFF  0x0D //also mapped to EEPROM
+#define REG_VOLT_DC_CALIB_SCA  0x0E //also mapped to EEPROM
+#define REG_LOCK               0x0F
 
-
-#define UNITREGS_SIZE          0x0B
+#define UNITREGS_SIZE          0x10
 
 //******************************************************************************
 //* COMMS REGISTER MAP (addr FF) commregs
@@ -81,8 +85,11 @@
 #define REG_LED3               0x03
 #define REG_PSU                0x04
 #define REG_PSU_VOLTAGE        0x05
+#define REG_PSU_CUTOFF_LOW     0x06
+#define REG_PSU_CUTOFF_HIGH    0x07
+#define REG_PSU_CUTOFF_HYST    0x08
 
-#define COMMREGS_SIZE          0x06
+#define COMMREGS_SIZE          0x09
 //******************************************************************************
 //* EEPROM MEMORY MAP
 //******************************************************************************
@@ -91,9 +98,15 @@
 #define EEP_CURRENT_CALIB_SCA  0x0A //8 bytes
 #define EEP_TEMP_CALIB_R       0x12 //8 bytes
 #define EEP_TEMP_CALIB_B       0x1A //8 bytes
-#define EEP_VOLTAGE_CALIB_OFF  0x22 //8 bytes
-#define EEP_VOLTAGE_CALIB_SCA  0x2A //8 bytes
+#define EEP_CURRENT_CALIB_PP   0x22 //8 bytes
+#define EEP_VOLTAGE_CALIB_PP   0x2A //8 bytes
 #define EEP_DEVICE_ID          0x32 //2 bytes
+#define EEP_VOLT_CH_CALIB_OFF  0x34 //2 bytes
+#define EEP_VOLT_CH_CALIB_SCA  0x36 //2 bytes
+#define EEP_VOLT_DC_CALIB_OFF  0x38 //2 bytes
+#define EEP_VOLT_DC_CALIB_SCA  0x3A //2 bytes
+#define EEP_CURR_CALIB_PP_OFF  0x3C //8 bytes
+#define EEP_VOLT_CALIB_PP_OFF  0x44 //8 bytes
 #define EEP_BOOTLOAD_ADDR      0xFF
 //******************************************************************************
 //* Register Specific Codes and Flags
@@ -142,6 +155,9 @@
 #define LED_RAMP_UP            0x0006
 #define LED_RAMP_DOWN          0x0007
 #define LED_SINE               0x0008
+
+#define LOCK_LOCKED            0x0001
+#define LOCK_UNLOCKED          0x0000
 //******************************************************************************
 //* APPLICATION DEFINES
 //******************************************************************************
@@ -153,7 +169,7 @@
 
 #define MAXTOL 10
 #define NC_VOLTAGE 13107 //1.8volts
-#define BACKWARDS_VOLTAGE 2185 //0.3 Volts
+#define BACKWARDS_VOLTAGE 73 //0.01 Volts
 
 typedef struct packets
 {
@@ -194,6 +210,7 @@ void memcpy_2(void *dest,void *src);
 uint16_t ADC_Get15BitOversample(adcc_channel_t channel);
 uint16_t ADC_Get10BitSample(adcc_channel_t channel);
 uint16_t ADC_Get10BitCurrent(uint8_t cell);
+uint16_t ADC_Get12BitCurrent(uint8_t cell);
 int16_t SPI_Get12BitSample(uint8_t cell);
 void TMR0_ISR(void);
 void TMR2_ISR(void);

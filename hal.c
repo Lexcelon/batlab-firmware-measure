@@ -2,7 +2,7 @@
 #include "mcc_generated_files/mcc.h"
 #include "hal.h"
 
-#define FIRMWARE_VER 1
+#define FIRMWARE_VER 2
 
 volatile uint16_t cellregs[4][CELLREGS_SIZE] = {0};
 volatile uint16_t unitregs[UNITREGS_SIZE] = {0};
@@ -66,8 +66,26 @@ void app_initialize(void)
     unitregs[REG_SINE_FREQ] = 1; //39.0625 Hz
     unitregs[REG_SYSTEM_TIMER] = 0;
     unitregs[REG_SETTINGS] = 0x0000;
-    unitregs[REG_SINE_OFFSET] = 25; //minimum at 0.25 amp.
+    unitregs[REG_SINE_OFFSET] = 16; //minimum at 0.125 amp.
     unitregs[REG_SINE_MAGDIV] = 2; //0= 2 Amp pp.  1 = 1 Amp pp; 2 = 0.5 amp pp; 3 = 0.25 amp pp
+    unitregs[REG_LOCK] = LOCK_UNLOCKED;
+    
+    temp[0] = DATAEE_ReadByte(EEP_VOLT_CH_CALIB_OFF);
+    temp[1] = DATAEE_ReadByte(EEP_VOLT_CH_CALIB_OFF+1);
+    memcpy_2(&(unitregs[REG_VOLT_CH_CALIB_OFF]),&(temp[0]));
+        
+    temp[0] = DATAEE_ReadByte(EEP_VOLT_CH_CALIB_SCA);
+    temp[1] = DATAEE_ReadByte(EEP_VOLT_CH_CALIB_SCA+1);
+    memcpy_2(&(unitregs[REG_VOLT_CH_CALIB_SCA]),&(temp[0]));
+    
+    temp[0] = DATAEE_ReadByte(EEP_VOLT_DC_CALIB_OFF);
+    temp[1] = DATAEE_ReadByte(EEP_VOLT_DC_CALIB_OFF+1);
+    memcpy_2(&(unitregs[REG_VOLT_DC_CALIB_OFF]),&(temp[0]));
+        
+    temp[0] = DATAEE_ReadByte(EEP_VOLT_DC_CALIB_SCA);
+    temp[1] = DATAEE_ReadByte(EEP_VOLT_DC_CALIB_SCA+1);
+    memcpy_2(&(unitregs[REG_VOLT_DC_CALIB_SCA]),&(temp[0]));
+    
     
     //initialize COMMS namespace
     commregs[REG_LED0] = LED_OFF;
@@ -95,34 +113,38 @@ void app_initialize(void)
         temp[1] = DATAEE_ReadByte(EEP_TEMP_CALIB_B+2*i+1);
         memcpy_2(&(cellregs[i][REG_TEMP_CALIB_B]),&(temp[0]));
         
-        temp[0] = DATAEE_ReadByte(EEP_VOLTAGE_CALIB_OFF+2*i);
-        temp[1] = DATAEE_ReadByte(EEP_VOLTAGE_CALIB_OFF+2*i+1);
-        memcpy_2(&(cellregs[i][REG_VOLTAGE_CALIB_OFF]),&(temp[0]));
+        temp[0] = DATAEE_ReadByte(EEP_CURRENT_CALIB_PP+2*i);
+        temp[1] = DATAEE_ReadByte(EEP_CURRENT_CALIB_PP+2*i+1);
+        memcpy_2(&(cellregs[i][REG_CURRENT_CALIB_PP]),&(temp[0]));
         
-        temp[0] = DATAEE_ReadByte(EEP_VOLTAGE_CALIB_SCA+2*i);
-        temp[1] = DATAEE_ReadByte(EEP_VOLTAGE_CALIB_SCA+2*i+1);
-        memcpy_2(&(cellregs[i][REG_VOLTAGE_CALIB_SCA]),&(temp[0]));
+        temp[0] = DATAEE_ReadByte(EEP_VOLTAGE_CALIB_PP+2*i);
+        temp[1] = DATAEE_ReadByte(EEP_VOLTAGE_CALIB_PP+2*i+1);
+        memcpy_2(&(cellregs[i][REG_VOLTAGE_CALIB_PP]),&(temp[0]));
         
-
+        temp[0] = DATAEE_ReadByte(EEP_CURR_CALIB_PP_OFF+2*i);
+        temp[1] = DATAEE_ReadByte(EEP_CURR_CALIB_PP_OFF+2*i+1);
+        memcpy_2(&(cellregs[i][REG_CURR_CALIB_PP_OFF]),&(temp[0]));
         
-
-    
+        temp[0] = DATAEE_ReadByte(EEP_VOLT_CALIB_PP_OFF+2*i);
+        temp[1] = DATAEE_ReadByte(EEP_VOLT_CALIB_PP_OFF+2*i+1);
+        memcpy_2(&(cellregs[i][REG_VOLT_CALIB_PP_OFF]),&(temp[0]));
+        
         cellregs[i][REG_MODE              ] = MODE_NO_CELL;
         cellregs[i][REG_ERROR             ] = 0x0000;
         cellregs[i][REG_STATUS            ] = 0x0000;
         cellregs[i][REG_CURRENT_SETPOINT  ] = 256;  //2A  @5.0V ref out of 640 5V->5A
         cellregs[i][REG_REPORT_INTERVAL   ] = 0;    //set it off initially; 10= 0.1 sec
-        cellregs[i][REG_TEMPERATURE       ] = 0x0000;//int16
-        cellregs[i][REG_CURRENT           ] = 0x0000;//int16
-        cellregs[i][REG_VOLTAGE           ] = 0x0000;//int16
+        cellregs[i][REG_TEMPERATURE       ] = 25093;//int16
+        cellregs[i][REG_CURRENT           ] = 31999;//int16
+        cellregs[i][REG_VOLTAGE           ] = 20390;//int16
         cellregs[i][REG_CHARGEL           ] = 0x0000;//low16 of int32
         cellregs[i][REG_CHARGEH           ] = 0x0000;//high16 of int32
         cellregs[i][REG_VOLTAGE_LIMIT_CHG ] = 30584; //4.2V @4.5V ref int16
         cellregs[i][REG_VOLTAGE_LIMIT_DCHG] = 20389; //2.8V @4.5V ref int16
         cellregs[i][REG_CURRENT_LIMIT_CHG ] = 32000; //4A   @4.096V ref = 4.096A int16    20mOhms * gain 50 = 3V->3A
         cellregs[i][REG_CURRENT_LIMIT_DCHG] = 32000; //4A   @4.096V ref = 4.096A int16    20mOhms * gain 50 = 3V->3A
-        cellregs[i][REG_TEMP_LIMIT_CHG    ] = 10707; //45 deg C units ???? @5.0A int16
-        cellregs[i][REG_TEMP_LIMIT_DCHG   ] =  6692;//65 deg C units ???? @5.0V int16
+        cellregs[i][REG_TEMP_LIMIT_CHG    ] = 25092; //45 deg C units ???? @5.0A int16
+        cellregs[i][REG_TEMP_LIMIT_DCHG   ] = 20825;//65 deg C units ???? @5.0V int16
         
         
     }
@@ -227,7 +249,39 @@ void handle_uart_packet()
                 q.payload[3] = 0x00;
                 q.payload[4] = 0x00;
             }
-            else if (addr == REG_SETTINGS || addr == REG_SINE_OFFSET || addr == REG_SINE_MAGDIV || addr == REG_LED_MESSAGE)
+            else if(addr == REG_VOLT_CH_CALIB_OFF)
+            {
+                DATAEE_WriteByte(EEP_VOLT_CH_CALIB_OFF,p.payload[3]);
+                DATAEE_WriteByte(EEP_VOLT_CH_CALIB_OFF+1,p.payload[4]);
+                memcpy_2(&(unitregs[addr]),&(p.payload[3]));
+                q.payload[3] = 0x00;
+                q.payload[4] = 0x00;
+            }
+            else if(addr == REG_VOLT_CH_CALIB_SCA)
+            {
+                DATAEE_WriteByte(EEP_VOLT_CH_CALIB_SCA,p.payload[3]);
+                DATAEE_WriteByte(EEP_VOLT_CH_CALIB_SCA+1,p.payload[4]);
+                memcpy_2(&(unitregs[addr]),&(p.payload[3]));
+                q.payload[3] = 0x00;
+                q.payload[4] = 0x00;
+            }
+            else if(addr == REG_VOLT_DC_CALIB_OFF)
+            {
+                DATAEE_WriteByte(EEP_VOLT_DC_CALIB_OFF,p.payload[3]);
+                DATAEE_WriteByte(EEP_VOLT_DC_CALIB_OFF+1,p.payload[4]);
+                memcpy_2(&(unitregs[addr]),&(p.payload[3]));
+                q.payload[3] = 0x00;
+                q.payload[4] = 0x00;
+            }
+            else if(addr == REG_VOLT_DC_CALIB_SCA)
+            {
+                DATAEE_WriteByte(EEP_VOLT_DC_CALIB_SCA,p.payload[3]);
+                DATAEE_WriteByte(EEP_VOLT_DC_CALIB_SCA+1,p.payload[4]);
+                memcpy_2(&(unitregs[addr]),&(p.payload[3]));
+                q.payload[3] = 0x00;
+                q.payload[4] = 0x00;
+            }
+            else if (addr == REG_SETTINGS || addr == REG_SINE_OFFSET || addr == REG_SINE_MAGDIV || addr == REG_LED_MESSAGE || addr == REG_LOCK)
             {
                 memcpy_2(&(unitregs[addr]),&(p.payload[3]));
                 q.payload[3] = 0x00;
@@ -268,15 +322,25 @@ void handle_uart_packet()
                 DATAEE_WriteByte(EEP_TEMP_CALIB_B+2*cell,p.payload[3]);
                 DATAEE_WriteByte(EEP_TEMP_CALIB_B+2*cell+1,p.payload[4]);
             }
-            else if(addr == REG_VOLTAGE_CALIB_OFF)
+            else if(addr == REG_CURRENT_CALIB_PP)
             {
-                DATAEE_WriteByte(EEP_VOLTAGE_CALIB_OFF+2*cell,p.payload[3]);
-                DATAEE_WriteByte(EEP_VOLTAGE_CALIB_OFF+2*cell+1,p.payload[4]);
+                DATAEE_WriteByte(EEP_CURRENT_CALIB_PP+2*cell,p.payload[3]);
+                DATAEE_WriteByte(EEP_CURRENT_CALIB_PP+2*cell+1,p.payload[4]);
             }
-            else if(addr == REG_VOLTAGE_CALIB_SCA)
+            else if(addr == REG_VOLTAGE_CALIB_PP)
             {
-                DATAEE_WriteByte(EEP_VOLTAGE_CALIB_SCA+2*cell,p.payload[3]);
-                DATAEE_WriteByte(EEP_VOLTAGE_CALIB_SCA+2*cell+1,p.payload[4]);
+                DATAEE_WriteByte(EEP_VOLTAGE_CALIB_PP+2*cell,p.payload[3]);
+                DATAEE_WriteByte(EEP_VOLTAGE_CALIB_PP+2*cell+1,p.payload[4]);
+            }
+            else if(addr == REG_CURR_CALIB_PP_OFF)
+            {
+                DATAEE_WriteByte(EEP_CURR_CALIB_PP_OFF+2*cell,p.payload[3]);
+                DATAEE_WriteByte(EEP_CURR_CALIB_PP_OFF+2*cell+1,p.payload[4]);
+            }
+            else if(addr == REG_VOLT_CALIB_PP_OFF)
+            {
+                DATAEE_WriteByte(EEP_VOLT_CALIB_PP_OFF+2*cell,p.payload[3]);
+                DATAEE_WriteByte(EEP_VOLT_CALIB_PP_OFF+2*cell+1,p.payload[4]);
             }
             else if(addr == REG_CHARGEH || addr == REG_CHARGEL)
             {
@@ -396,7 +460,7 @@ void set_flags(uint8_t i)        //use inputs to decide what the next state will
     status = (temperature < cellregs[i][REG_TEMP_LIMIT_DCHG]) ? status | STAT_TEMP_LIMIT_DCHG : status & ~STAT_TEMP_LIMIT_DCHG;
     status = (!commregs[REG_PSU]) ? status | STAT_NO_PSU : status & ~STAT_NO_PSU;
     status = (unitregs[REG_SERIAL_NUM] == 0xFFFF || unitregs[REG_DEVICE_ID] == 0xFFFF) ? status | STAT_NOT_INITIALIZED : status & ~STAT_NOT_INITIALIZED;
-    status = (cellregs[i][REG_VOLTAGE_CALIB_SCA] == 0xFFFF || cellregs[i][REG_CURRENT_CALIB_SCA] == 0xFFFF) ? status | STAT_NOT_CALIBRATED : status & ~STAT_NOT_CALIBRATED;
+    status = (unitregs[REG_VOLT_CH_CALIB_SCA] == 0xFFFF || cellregs[i][REG_CURRENT_CALIB_SCA] == 0xFFFF) ? status | STAT_NOT_CALIBRATED : status & ~STAT_NOT_CALIBRATED;
 
     //state machine for cell MODE
     switch(mode)
@@ -468,12 +532,17 @@ void set_flags(uint8_t i)        //use inputs to decide what the next state will
 //******************************************************************************
 void send_streams(uint8_t i)
 {
+    uint16_t timer;
+    
+    INTERRUPT_GlobalInterruptDisable();
+    timer = unitregs[REG_SYSTEM_TIMER];
+    INTERRUPT_GlobalInterruptEnable();
     if(cellregs[i][REG_REPORT_INTERVAL] == 0){return;}
     
     static uint16_t last_msg[4] = {0};
-    if(unitregs[REG_SYSTEM_TIMER] - last_msg[i] > cellregs[i][REG_REPORT_INTERVAL])
+    if(timer - last_msg[i] > cellregs[i][REG_REPORT_INTERVAL])
     {
-        last_msg[i] = unitregs[REG_SYSTEM_TIMER];
+        last_msg[i] = timer;
         create_stream_packet(i);
         send_uart_packet();
     }
@@ -484,9 +553,15 @@ void send_streams(uint8_t i)
 void send_psu()
 {
     static uint16_t last_msg = 0;
-    if(unitregs[REG_SYSTEM_TIMER] - last_msg > 10)
+    uint16_t timer;
+    
+    INTERRUPT_GlobalInterruptDisable();
+    timer = unitregs[REG_SYSTEM_TIMER];
+    INTERRUPT_GlobalInterruptEnable();
+    
+    if(timer - last_msg > 10)
     {
-        last_msg = unitregs[REG_SYSTEM_TIMER];
+        last_msg = timer;
         create_psu_packet();
         send_uart_packet();
     }
@@ -548,6 +623,11 @@ void set_fan(uint8_t i)       //set the outputs for the next state
     uint16_t status = cellregs[i][REG_STATUS];
     static uint16_t fan_on_timer = 0;
     static uint8_t flag_startup = 1;
+    uint16_t timer;
+    
+    INTERRUPT_GlobalInterruptDisable();
+    timer = unitregs[REG_SYSTEM_TIMER];
+    INTERRUPT_GlobalInterruptEnable();
 
     if(i==0)
     {
@@ -557,13 +637,13 @@ void set_fan(uint8_t i)       //set the outputs for the next state
     if(mode == MODE_CHARGE || mode == MODE_DISCHARGE || mode == MODE_IMPEDANCE)
     {
         fan_flag++;
-        fan_on_timer = unitregs[REG_SYSTEM_TIMER];
+        fan_on_timer = timer;
         flag_startup = 0;
     }
     if(status & STAT_TEMP_LIMIT_CHG || status & STAT_TEMP_LIMIT_DCHG){fan_flag++;}
-    if(unitregs[REG_SYSTEM_TIMER] - fan_on_timer > 1200UL || flag_startup) //greater than 2 minutes have past since fan needed
+    if(timer - fan_on_timer > 1200UL || flag_startup) //greater than 2 minutes have past since fan needed
     {
-       fan_on_timer = unitregs[REG_SYSTEM_TIMER] - 1201UL; //keep the expire time at 2 minutes so it doesn't roll over
+       fan_on_timer = timer - 1201UL; //keep the expire time at 2 minutes so it doesn't roll over
     }
     else
     {
@@ -574,7 +654,6 @@ void set_fan(uint8_t i)       //set the outputs for the next state
     {
         if(fan_flag)
         {
-            
             FAN1_SetHigh();
         }
         else        
@@ -589,14 +668,21 @@ void set_fan(uint8_t i)       //set the outputs for the next state
 void LED_CMD(uint8_t led,uint16_t state)
 {
     static uint16_t last_msg[4] = {0};
+    uint16_t timer;
+    
+    INTERRUPT_GlobalInterruptDisable();
+    timer = unitregs[REG_SYSTEM_TIMER];
+    INTERRUPT_GlobalInterruptEnable();
     //only send the message if the LED is wrong or if it has been more than 2 seconds since the last update
-    if( commregs[led] != state || unitregs[REG_SYSTEM_TIMER] - last_msg[led] > 20 )
+    
+    if( commregs[led] != state || timer - last_msg[led] > 20 )
     {
-        last_msg[led] = unitregs[REG_SYSTEM_TIMER];
+        last_msg[led] = timer;
         create_led_packet(led,state);
         send_uart_packet();
         commregs[led] = state;
     } 
+    
 }
 //******************************************************************************
 //* SET_LED_MSG - control the onboard message LED
@@ -604,26 +690,31 @@ void LED_CMD(uint8_t led,uint16_t state)
 void SET_LED_MSG(uint16_t state)
 {
     static uint16_t last_msg = 0;
+    uint16_t timer;
+    
+    INTERRUPT_GlobalInterruptDisable();
+    timer = unitregs[REG_SYSTEM_TIMER];
+    INTERRUPT_GlobalInterruptEnable();
     if(state == LED_FLASH_FAST)
     {
-        if(unitregs[REG_SYSTEM_TIMER] - last_msg > 8)
+        if(timer - last_msg > 8)
         {
-            last_msg = unitregs[REG_SYSTEM_TIMER];
+            last_msg = timer;
             LED_MSG_SetHigh();  
         }
-        else if(unitregs[REG_SYSTEM_TIMER] - last_msg > 4)
+        else if(timer - last_msg > 4)
         {
             LED_MSG_SetLow();
         }
     }
     else if (state == LED_FLASH_SLOW)
     {
-        if(unitregs[REG_SYSTEM_TIMER] - last_msg > 16)
+        if(timer - last_msg > 16)
         {
-            last_msg = unitregs[REG_SYSTEM_TIMER];
+            last_msg = timer;
             LED_MSG_SetHigh();  
         }
-        else if(unitregs[REG_SYSTEM_TIMER] - last_msg > 8)
+        else if(timer - last_msg > 8)
         {
             LED_MSG_SetLow();
         }
@@ -700,6 +791,32 @@ uint16_t ADC_Get10BitCurrent(uint8_t cell)
     return ((ADRESH << 8) + ADRESL);
 }
 
+uint16_t ADC_Get12BitCurrent(uint8_t cell)
+{
+    static adcc_channel_t channel[4] = {ISENSE0,ISENSE1,ISENSE2,ISENSE3};
+    uint16_t sum = 0;
+    ADPCH = channel[cell];    
+    
+    ADCON0bits.ADGO = 1; // Start the conversion
+    while (ADCON0bits.ADGO); // Wait for the conversion to finish
+    sum += ((ADRESH << 8) + ADRESL);
+    
+    ADCON0bits.ADGO = 1; // Start the conversion
+    while (ADCON0bits.ADGO); // Wait for the conversion to finish
+    sum += ((ADRESH << 8) + ADRESL);
+    
+    ADCON0bits.ADGO = 1; // Start the conversion
+    while (ADCON0bits.ADGO); // Wait for the conversion to finish
+    sum += ((ADRESH << 8) + ADRESL);
+    
+    ADCON0bits.ADGO = 1; // Start the conversion
+    while (ADCON0bits.ADGO); // Wait for the conversion to finish
+    sum += ((ADRESH << 8) + ADRESL);
+    
+    // Conversion finished, return the result
+    return sum;
+}
+
 int16_t SPI_Get12BitSample(uint8_t cell) //50 us
 {
     union bytes             //cs must see a falling edge first
@@ -724,6 +841,11 @@ void SetDuty(uint8_t cell, uint16_t duty) //duty should be 15 bit unsigned
 {
     static int8_t compensation[4] = {0};
     static uint16_t cprev[4] = {0};
+    uint16_t current;
+    
+    INTERRUPT_GlobalInterruptDisable();
+    current = cellregs[cell][REG_CURRENT];
+    INTERRUPT_GlobalInterruptEnable();
     //duty Cycle is out of 640 if PR2 = 159
     //640 = 5V = 10A
     //     VCC
@@ -733,24 +855,27 @@ void SetDuty(uint8_t cell, uint16_t duty) //duty should be 15 bit unsigned
     {
         if(unitregs[REG_SETTINGS] & SET_TRIM_OUTPUT)
         {
-            if( cellregs[cell][REG_CURRENT] != cprev[cell] )
+            if( current != cprev[cell] )
             {
                 cellregs[cell][REG_COMPENSATION] = compensation[cell];
-                if( (cellregs[cell][REG_CURRENT] << 1) > ((duty + 1) * 125)  )
+                if( (current << 1) > ((duty + 1) * 125)  )
                 {  //If we are trying to send less than actual, then send less
                     --compensation[cell];
                 }
-                else if ((cellregs[cell][REG_CURRENT] << 1) < ((duty ) * 125)  )
+                else if ((current << 1) < ((duty ) * 125)  )
                 {
                     ++compensation[cell];   
                 }
-                cprev[cell] = cellregs[cell][REG_CURRENT]; 
+                cprev[cell] = current; 
             }
             duty = (int16_t)duty + compensation[cell]; //if we aren't too far off the mark, duty stays the same
         } 
         else if(unitregs[REG_SETTINGS] & SET_VCC_COMPENSATION)
         {
-            uint32_t temp = (uint32_t)((unitregs[REG_VCC] + 16) >> 5) * (uint32_t)duty * 625UL;
+            uint32_t temp;
+            INTERRUPT_GlobalInterruptDisable();
+            temp = (uint32_t)((unitregs[REG_VCC] + 16) >> 5) * (uint32_t)duty * 625UL;
+            INTERRUPT_GlobalInterruptEnable();
             duty = (temp + (262144UL)) >> 19;
         }
         if(duty > 900) {duty = 0;}
@@ -794,8 +919,6 @@ void measurement_handler()
 {
     static uint16_t cmax[4] = {0};
     static uint16_t cmin[4] = {0};
-    static uint8_t cphs[4] = {0};
-    static uint8_t vphs[4] = {0};
     static uint32_t csum[4] = {0};
     static uint16_t vmax[4] = {0};
     static uint16_t vmin[4] = {0};
@@ -813,13 +936,16 @@ void measurement_handler()
     {
         current = ADC_Get10BitCurrent(timeslice);                              //get the measurements 70 us
         voltage = SPI_Get12BitSample(timeslice); 
+        current += ADC_Get10BitCurrent(timeslice);
         csum[timeslice] += current;
         vsum[timeslice] += voltage;
+        //c2sum[timeslice] += (uint32_t)current * current;
+        //v2sum[timeslice] += ((int32_t)voltage * voltage) >> 2;
         if(ctr > 128) //give the ADC time to settle into its slice
         {
-            if(current > cmax[timeslice]){cmax[timeslice] = current; cphs[timeslice] = SINE_COUNTER;}
+            if(current > cmax[timeslice]){cmax[timeslice] = current;}
             if(current < cmin[timeslice]){cmin[timeslice] = current;}
-            if(voltage > vmax[timeslice]){vmax[timeslice] = voltage; vphs[timeslice] = SINE_COUNTER;}
+            if(voltage > vmax[timeslice]){vmax[timeslice] = voltage;}
             if(voltage < vmin[timeslice]){vmin[timeslice] = voltage;}
         }
     }
@@ -841,14 +967,23 @@ void measurement_handler()
     {
         ctr = 0;
         if(timeslice < 4)
-        {   //cellregs[timeslice][REG_VOLTAGE_CALIB_SCA]
-            cellregs[timeslice][REG_CURRENT] = ((csum[timeslice] << 9) / cellregs[timeslice][REG_CURRENT_CALIB_SCA])  - (int16_t)cellregs[timeslice][REG_CURRENT_CALIB_OFF]; // (value / 1024) * 32 is the same as value >> 5 (registers expect 15 bit measurements))
-            if(cellregs[timeslice][REG_CURRENT] & 0x8000) {cellregs[timeslice][REG_CURRENT] = 0;} //no negative current allowed
-            cellregs[timeslice][REG_VOLTAGE] = ((vsum[timeslice] << 7) / cellregs[timeslice][REG_VOLTAGE_CALIB_SCA])  - (int16_t)cellregs[timeslice][REG_VOLTAGE_CALIB_OFF]; // (value / 1024) *  8 is the same as value >> 7 (registers expect 15 bit measurements))
-            cellregs[timeslice][REG_CURRENT_PP] = (cmax[timeslice] - cmin[timeslice]) << 5; //scale this 10 bit value into a 15 bit value
-            cellregs[timeslice][REG_VOLTAGE_PP] = (vmax[timeslice] - vmin[timeslice]) << 3; //scale this 12 bit value into a 15 bit value
-            cellregs[timeslice][REG_CURRENT_PHS] = cphs[timeslice]; //latch in the phase measurement from the previous timeslice
-            cellregs[timeslice][REG_VOLTAGE_PHS] = vphs[timeslice]; //latch in the phase measurement from the previous timeslice
+        { 
+            if(!unitregs[REG_LOCK])
+            {
+                cellregs[timeslice][REG_CURRENT] = ((csum[timeslice] << 8) / cellregs[timeslice][REG_CURRENT_CALIB_SCA])  - (int16_t)cellregs[timeslice][REG_CURRENT_CALIB_OFF]; // (value / 1024) * 32 is the same as value >> 5 (registers expect 15 bit measurements))
+                if((int16_t)cellregs[timeslice][REG_CURRENT] < 128) {cellregs[timeslice][REG_CURRENT] = 0;} //no negative current allowed. And tiny currents are due to the offset not being appropriate for 0 Amp measurement
+                if(cellregs[timeslice][REG_MODE] == MODE_CHARGE)
+                {
+                    cellregs[timeslice][REG_VOLTAGE] = ((vsum[timeslice] << 7) / unitregs[REG_VOLT_CH_CALIB_SCA])  - (int16_t)unitregs[REG_VOLT_CH_CALIB_OFF]; // (value / 1024) *  8 is the same as value >> 7 (registers expect 15 bit measurements))
+                }
+                else
+                {
+                    cellregs[timeslice][REG_VOLTAGE] = ((vsum[timeslice] << 7) / unitregs[REG_VOLT_DC_CALIB_SCA])  - (int16_t)unitregs[REG_VOLT_DC_CALIB_OFF]; // (value / 1024) *  8 is the same as value >> 7 (registers expect 15 bit measurements))
+                }
+                if(cellregs[timeslice][REG_VOLTAGE] & 0x8000 && cellregs[timeslice][REG_VOLTAGE] < 0x8E38  ) {cellregs[timeslice][REG_VOLTAGE] = 0x7FFF;} //only small negative voltages allowed.
+                cellregs[timeslice][REG_CURRENT_PP] = ((  (uint32_t)(cmax[timeslice] - cmin[timeslice]) << 18U) / cellregs[timeslice][REG_CURRENT_CALIB_PP]) - (int16_t)cellregs[timeslice][REG_CURR_CALIB_PP_OFF];  //<< 5; //scale this 10 bit value into a 15 bit value
+                cellregs[timeslice][REG_VOLTAGE_PP] = ((  (uint32_t)(vmax[timeslice] - vmin[timeslice]) << 17U) / cellregs[timeslice][REG_VOLTAGE_CALIB_PP]) - (int16_t)cellregs[timeslice][REG_VOLT_CALIB_PP_OFF];  //<< 3; //scale this 12 bit value into a 15 bit value
+            }
             cmax[timeslice] = 0;
             cmin[timeslice] = 0xFFFF;
             vmax[timeslice] = 0x0000;
@@ -861,12 +996,15 @@ void measurement_handler()
         }
         else if (timeslice == 4)    //temperature and VCC update
         {
-            cellregs[0][REG_TEMPERATURE] = (tsum[0] >> 5); // (value / 1024) * 32 is the same as value >> 5 (registers expect 15 bit measurements))
-            cellregs[1][REG_TEMPERATURE] = (tsum[1] >> 5); // (value / 1024) * 32 is the same as value >> 5 (registers expect 15 bit measurements))
+            if(!unitregs[REG_LOCK])
+            {
+                cellregs[0][REG_TEMPERATURE] = (tsum[0] >> 5); // (value / 1024) * 32 is the same as value >> 5 (registers expect 15 bit measurements))
+                cellregs[1][REG_TEMPERATURE] = (tsum[1] >> 5); // (value / 1024) * 32 is the same as value >> 5 (registers expect 15 bit measurements))
+                cellregs[2][REG_TEMPERATURE] = (tsum[2] >> 5); // (value / 1024) * 32 is the same as value >> 5 (registers expect 15 bit measurements))
+                cellregs[3][REG_TEMPERATURE] = (tsum[3] >> 5); // (value / 1024) * 32 is the same as value >> 5 (registers expect 15 bit measurements))   
+            }
             tsum[0] = 0;
             tsum[1] = 0;
-            cellregs[2][REG_TEMPERATURE] = (tsum[2] >> 5); // (value / 1024) * 32 is the same as value >> 5 (registers expect 15 bit measurements))
-            cellregs[3][REG_TEMPERATURE] = (tsum[3] >> 5); // (value / 1024) * 32 is the same as value >> 5 (registers expect 15 bit measurements))
             tsum[2] = 0;
             tsum[3] = 0;   
             ADCLK = 0x3F; //slow the clock down a bit for vcc measurement 
@@ -874,7 +1012,10 @@ void measurement_handler()
         }
         else if (timeslice == 5)
         {
-            unitregs[REG_VCC] = vccsum >> 5; // (value / 1024) * 32 is the same as value >> 5 (registers expect 15 bit measurements))
+            if(!unitregs[REG_LOCK])
+            {
+                unitregs[REG_VCC] = vccsum >> 5; // (value / 1024) * 32 is the same as value >> 5 (registers expect 15 bit measurements))
+            }
             vccsum  = 0;
             ADCLK = 0x1F;
             ADC_FVR();    //set it back up for current measurement
