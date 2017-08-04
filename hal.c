@@ -2,7 +2,7 @@
 #include "mcc_generated_files/mcc.h"
 #include "hal.h"
 
-#define FIRMWARE_VER 2
+#define FIRMWARE_VER 3
 
 volatile uint16_t cellregs[4][CELLREGS_SIZE] = {0};
 volatile uint16_t unitregs[UNITREGS_SIZE] = {0};
@@ -43,23 +43,41 @@ uint8_t SINETABLE[256] = //if mapped directly to duty, this goes from 0 to 4 amp
 5,4,3,3,2,2,1,1,0,0,
 0,0
 };
-
+void EEPROM2UNITREG(uint8_t regaddr,uint8_t eeaddr)
+{
+    static uint8_t temp[2];
+    temp[0] = DATAEE_ReadByte(eeaddr); //load in serial number
+    temp[1] = DATAEE_ReadByte(eeaddr+1);
+    memcpy_2(&(unitregs[regaddr]),&(temp[0]));
+}
+void EEPROM2CELLREG(uint8_t celladdr, uint8_t regaddr,uint8_t eeaddr)
+{
+    static uint8_t temp[2];
+    temp[0] = DATAEE_ReadByte(eeaddr+celladdr*2);
+    temp[1] = DATAEE_ReadByte(eeaddr+celladdr*2+1);
+    memcpy_2(&(cellregs[celladdr][regaddr]),&(temp[0]));
+}
+void PAYLOAD2UNITREG(uint8_t addr,uint8_t ee_write,uint8_t eeaddr)
+{
+    if(ee_write)
+    {
+        DATAEE_WriteByte(eeaddr,p.payload[3]);
+        DATAEE_WriteByte(eeaddr+1,p.payload[4]);
+    }
+    memcpy_2(&(unitregs[addr]),&(p.payload[3]));
+    q.payload[3] = 0x00;
+    q.payload[4] = 0x00;
+}
 //******************************************************************************
 //* app_initialize
 //******************************************************************************
 void app_initialize(void)
 {
-    uint32_t i;
-    uint8_t temp[2];
+    uint8_t i;
     
     //Initialize unit namespace
-    temp[0] = DATAEE_ReadByte(EEP_SERIAL_NUM); //load in serial number
-    temp[1] = DATAEE_ReadByte(EEP_SERIAL_NUM+1);
-    memcpy_2(&(unitregs[REG_SERIAL_NUM]),&(temp[0]));
-    
-    temp[0] = DATAEE_ReadByte(EEP_DEVICE_ID); //load in device ID
-    temp[1] = DATAEE_ReadByte(EEP_DEVICE_ID+1);
-    memcpy_2(&(unitregs[REG_DEVICE_ID]),&(temp[0]));
+    EEPROM2UNITREG(REG_SERIAL_NUM,EEP_SERIAL_NUM);
+    EEPROM2UNITREG(REG_DEVICE_ID,EEP_DEVICE_ID);
     
     unitregs[REG_FIRMWARE_VER] = FIRMWARE_VER;
     unitregs[REG_VCC] = 0x0000;
@@ -70,22 +88,12 @@ void app_initialize(void)
     unitregs[REG_SINE_MAGDIV] = 2; //0= 2 Amp pp.  1 = 1 Amp pp; 2 = 0.5 amp pp; 3 = 0.25 amp pp
     unitregs[REG_LOCK] = LOCK_UNLOCKED;
     
-    temp[0] = DATAEE_ReadByte(EEP_VOLT_CH_CALIB_OFF);
-    temp[1] = DATAEE_ReadByte(EEP_VOLT_CH_CALIB_OFF+1);
-    memcpy_2(&(unitregs[REG_VOLT_CH_CALIB_OFF]),&(temp[0]));
-        
-    temp[0] = DATAEE_ReadByte(EEP_VOLT_CH_CALIB_SCA);
-    temp[1] = DATAEE_ReadByte(EEP_VOLT_CH_CALIB_SCA+1);
-    memcpy_2(&(unitregs[REG_VOLT_CH_CALIB_SCA]),&(temp[0]));
-    
-    temp[0] = DATAEE_ReadByte(EEP_VOLT_DC_CALIB_OFF);
-    temp[1] = DATAEE_ReadByte(EEP_VOLT_DC_CALIB_OFF+1);
-    memcpy_2(&(unitregs[REG_VOLT_DC_CALIB_OFF]),&(temp[0]));
-        
-    temp[0] = DATAEE_ReadByte(EEP_VOLT_DC_CALIB_SCA);
-    temp[1] = DATAEE_ReadByte(EEP_VOLT_DC_CALIB_SCA+1);
-    memcpy_2(&(unitregs[REG_VOLT_DC_CALIB_SCA]),&(temp[0]));
-    
+    EEPROM2UNITREG(REG_VOLT_CH_CALIB_OFF,EEP_VOLT_CH_CALIB_OFF);
+    EEPROM2UNITREG(REG_VOLT_CH_CALIB_SCA,EEP_VOLT_CH_CALIB_SCA);
+    EEPROM2UNITREG(REG_VOLT_DC_CALIB_OFF,EEP_VOLT_DC_CALIB_OFF);
+    EEPROM2UNITREG(REG_VOLT_DC_CALIB_SCA,EEP_VOLT_DC_CALIB_SCA);
+    EEPROM2UNITREG(REG_ZERO_AMP_THRESH,EEP_ZERO_AMP_THRESH); 
+    if (unitregs[REG_ZERO_AMP_THRESH] == 0xFFFF) {unitregs[REG_ZERO_AMP_THRESH] = 2000;} //default uninitialized value
     
     //initialize COMMS namespace
     commregs[REG_LED0] = LED_OFF;
@@ -97,37 +105,20 @@ void app_initialize(void)
     //initialize CELL namespace
     for(i=0;i<4;i++)
     {
-        temp[0] = DATAEE_ReadByte(EEP_CURRENT_CALIB_OFF+2*i);
-        temp[1] = DATAEE_ReadByte(EEP_CURRENT_CALIB_OFF+2*i+1);
-        memcpy_2(&(cellregs[i][REG_CURRENT_CALIB_OFF]),&(temp[0]));
-        
-        temp[0] = DATAEE_ReadByte(EEP_CURRENT_CALIB_SCA+2*i);
-        temp[1] = DATAEE_ReadByte(EEP_CURRENT_CALIB_SCA+2*i+1);
-        memcpy_2(&(cellregs[i][REG_CURRENT_CALIB_SCA]),&(temp[0]));
-        
-        temp[0] = DATAEE_ReadByte(EEP_TEMP_CALIB_R+2*i);
-        temp[1] = DATAEE_ReadByte(EEP_TEMP_CALIB_R+2*i+1);
-        memcpy_2(&(cellregs[i][REG_TEMP_CALIB_R]),&(temp[0]));
-        
-        temp[0] = DATAEE_ReadByte(EEP_TEMP_CALIB_B+2*i);
-        temp[1] = DATAEE_ReadByte(EEP_TEMP_CALIB_B+2*i+1);
-        memcpy_2(&(cellregs[i][REG_TEMP_CALIB_B]),&(temp[0]));
-        
-        temp[0] = DATAEE_ReadByte(EEP_CURRENT_CALIB_PP+2*i);
-        temp[1] = DATAEE_ReadByte(EEP_CURRENT_CALIB_PP+2*i+1);
-        memcpy_2(&(cellregs[i][REG_CURRENT_CALIB_PP]),&(temp[0]));
-        
-        temp[0] = DATAEE_ReadByte(EEP_VOLTAGE_CALIB_PP+2*i);
-        temp[1] = DATAEE_ReadByte(EEP_VOLTAGE_CALIB_PP+2*i+1);
-        memcpy_2(&(cellregs[i][REG_VOLTAGE_CALIB_PP]),&(temp[0]));
-        
-        temp[0] = DATAEE_ReadByte(EEP_CURR_CALIB_PP_OFF+2*i);
-        temp[1] = DATAEE_ReadByte(EEP_CURR_CALIB_PP_OFF+2*i+1);
-        memcpy_2(&(cellregs[i][REG_CURR_CALIB_PP_OFF]),&(temp[0]));
-        
-        temp[0] = DATAEE_ReadByte(EEP_VOLT_CALIB_PP_OFF+2*i);
-        temp[1] = DATAEE_ReadByte(EEP_VOLT_CALIB_PP_OFF+2*i+1);
-        memcpy_2(&(cellregs[i][REG_VOLT_CALIB_PP_OFF]),&(temp[0]));
+        EEPROM2CELLREG(i,REG_CURRENT_CALIB_OFF,EEP_CURRENT_CALIB_OFF);
+        EEPROM2CELLREG(i,REG_CURRENT_CALIB_SCA,EEP_CURRENT_CALIB_SCA);
+        EEPROM2CELLREG(i,REG_TEMP_CALIB_R,EEP_TEMP_CALIB_R);
+        EEPROM2CELLREG(i,REG_TEMP_CALIB_B,EEP_TEMP_CALIB_B);
+        EEPROM2CELLREG(i,REG_CURRENT_CALIB_PP,EEP_CURRENT_CALIB_PP);
+        EEPROM2CELLREG(i,REG_VOLTAGE_CALIB_PP,EEP_VOLTAGE_CALIB_PP);
+        EEPROM2CELLREG(i,REG_CURR_CALIB_PP_OFF,EEP_CURR_CALIB_PP_OFF);
+        EEPROM2CELLREG(i,REG_VOLT_CALIB_PP_OFF,EEP_VOLT_CALIB_PP_OFF);
+        EEPROM2CELLREG(i,REG_CURR_LOWV_SCA,EEP_CURR_LOWV_SCA);
+        if(cellregs[i][REG_CURR_LOWV_SCA] == 0xFFFF) {cellregs[i][REG_CURR_LOWV_SCA] = 10000;} //default uninitialized value
+        EEPROM2CELLREG(i,REG_CURR_LOWV_OFF,EEP_CURR_LOWV_OFF);
+        if(cellregs[i][REG_CURR_LOWV_OFF] == 0xFFFF) {cellregs[i][REG_CURR_LOWV_OFF] = 14500;} //default uninitialized value
+        EEPROM2CELLREG(i,REG_CURR_LOWV_OFF_SCA,EEP_CURR_LOWV_OFF_SCA);
+        if(cellregs[i][REG_CURR_LOWV_OFF_SCA] == 0xFFFF) {cellregs[i][REG_CURR_LOWV_OFF_SCA] = 6500;} //default uninitialized value
         
         cellregs[i][REG_MODE              ] = MODE_NO_CELL;
         cellregs[i][REG_ERROR             ] = 0x0000;
@@ -145,7 +136,6 @@ void app_initialize(void)
         cellregs[i][REG_CURRENT_LIMIT_DCHG] = 32000; //4A   @4.096V ref = 4.096A int16    20mOhms * gain 50 = 3V->3A
         cellregs[i][REG_TEMP_LIMIT_CHG    ] = 25092; //45 deg C units ???? @5.0A int16
         cellregs[i][REG_TEMP_LIMIT_DCHG   ] = 20825;//65 deg C units ???? @5.0V int16
-        
         
     }
     initialized = true;
@@ -219,73 +209,54 @@ void handle_uart_packet()
     {
         if(master_write) //pc writing to a unit register
         {
-            if(addr == REG_SERIAL_NUM && (unitregs[REG_SERIAL_NUM] == 0xFFFF || unitregs[REG_SETTINGS] & SET_DEBUG ) )
+            switch(addr)
             {
-                DATAEE_WriteByte(EEP_SERIAL_NUM,p.payload[3]); //serial number only writable once
-                DATAEE_WriteByte(EEP_SERIAL_NUM+1,p.payload[4]);
-                memcpy_2(&(unitregs[addr]),&(p.payload[3]));
-                q.payload[3] = 0x00;
-                q.payload[4] = 0x00;
-            }
-            else if(addr == REG_DEVICE_ID && (unitregs[REG_DEVICE_ID] == 0xFFFF || unitregs[REG_SETTINGS] & SET_DEBUG) )
-            {
-                DATAEE_WriteByte(EEP_DEVICE_ID,p.payload[3]); //serial number only writable once
-                DATAEE_WriteByte(EEP_DEVICE_ID+1,p.payload[4]);
-                memcpy_2(&(unitregs[addr]),&(p.payload[3]));
-                q.payload[3] = 0x00;
-                q.payload[4] = 0x00;
-            }
-            else if (addr == REG_SINE_FREQ)
-            {
-                SINE_COUNTER = 0;
-                memcpy_2(&(unitregs[addr]),&(p.payload[3]));
-                q.payload[3] = 0x00;
-                q.payload[4] = 0x00; 
-            }
-            else if (addr == REG_BOOTLOAD)
-            {
-                DATAEE_WriteByte(EEP_BOOTLOAD_ADDR,0xFE);
-                flag_restart = 1;
-                q.payload[3] = 0x00;
-                q.payload[4] = 0x00;
-            }
-            else if(addr == REG_VOLT_CH_CALIB_OFF)
-            {
-                DATAEE_WriteByte(EEP_VOLT_CH_CALIB_OFF,p.payload[3]);
-                DATAEE_WriteByte(EEP_VOLT_CH_CALIB_OFF+1,p.payload[4]);
-                memcpy_2(&(unitregs[addr]),&(p.payload[3]));
-                q.payload[3] = 0x00;
-                q.payload[4] = 0x00;
-            }
-            else if(addr == REG_VOLT_CH_CALIB_SCA)
-            {
-                DATAEE_WriteByte(EEP_VOLT_CH_CALIB_SCA,p.payload[3]);
-                DATAEE_WriteByte(EEP_VOLT_CH_CALIB_SCA+1,p.payload[4]);
-                memcpy_2(&(unitregs[addr]),&(p.payload[3]));
-                q.payload[3] = 0x00;
-                q.payload[4] = 0x00;
-            }
-            else if(addr == REG_VOLT_DC_CALIB_OFF)
-            {
-                DATAEE_WriteByte(EEP_VOLT_DC_CALIB_OFF,p.payload[3]);
-                DATAEE_WriteByte(EEP_VOLT_DC_CALIB_OFF+1,p.payload[4]);
-                memcpy_2(&(unitregs[addr]),&(p.payload[3]));
-                q.payload[3] = 0x00;
-                q.payload[4] = 0x00;
-            }
-            else if(addr == REG_VOLT_DC_CALIB_SCA)
-            {
-                DATAEE_WriteByte(EEP_VOLT_DC_CALIB_SCA,p.payload[3]);
-                DATAEE_WriteByte(EEP_VOLT_DC_CALIB_SCA+1,p.payload[4]);
-                memcpy_2(&(unitregs[addr]),&(p.payload[3]));
-                q.payload[3] = 0x00;
-                q.payload[4] = 0x00;
-            }
-            else if (addr == REG_SETTINGS || addr == REG_SINE_OFFSET || addr == REG_SINE_MAGDIV || addr == REG_LED_MESSAGE || addr == REG_LOCK)
-            {
-                memcpy_2(&(unitregs[addr]),&(p.payload[3]));
-                q.payload[3] = 0x00;
-                q.payload[4] = 0x00; 
+                case REG_SERIAL_NUM:
+                    if (unitregs[REG_SERIAL_NUM] == 0xFFFF || unitregs[REG_SETTINGS] & SET_DEBUG )
+                    {
+                        PAYLOAD2UNITREG(addr,true,EEP_SERIAL_NUM);
+                    }
+                    break;
+                case REG_DEVICE_ID:
+                    if (unitregs[REG_DEVICE_ID] == 0xFFFF || unitregs[REG_SETTINGS] & SET_DEBUG)
+                    {
+                       PAYLOAD2UNITREG(addr,true,EEP_DEVICE_ID); 
+                    }
+                    break;
+                case REG_SINE_FREQ:
+                    SINE_COUNTER = 0;
+                    PAYLOAD2UNITREG(addr,false,0);
+                    break;
+                case REG_BOOTLOAD:
+                    DATAEE_WriteByte(EEP_BOOTLOAD_ADDR,0xFE);
+                    flag_restart = 1;
+                    q.payload[3] = 0x00;
+                    q.payload[4] = 0x00;
+                    break;
+                case REG_VOLT_CH_CALIB_OFF:
+                    PAYLOAD2UNITREG(addr,true,EEP_VOLT_CH_CALIB_OFF);
+                    break;
+                case REG_VOLT_CH_CALIB_SCA:
+                    PAYLOAD2UNITREG(addr,true,EEP_VOLT_CH_CALIB_SCA);
+                    break;
+                case REG_VOLT_DC_CALIB_OFF:
+                    PAYLOAD2UNITREG(addr,true,EEP_VOLT_DC_CALIB_OFF);
+                    break;
+                case REG_VOLT_DC_CALIB_SCA:
+                    PAYLOAD2UNITREG(addr,true,EEP_VOLT_DC_CALIB_SCA);
+                    break;
+                case REG_ZERO_AMP_THRESH:
+                    PAYLOAD2UNITREG(addr,true,EEP_ZERO_AMP_THRESH);
+                    break;
+                case REG_SETTINGS:     //fall-through
+                case REG_SINE_OFFSET:  //fall-through
+                case REG_SINE_MAGDIV:  //fall-through
+                case REG_LED_MESSAGE:  //fall-through
+                case REG_LOCK:         //fall-through
+                    PAYLOAD2UNITREG(addr,false,0);
+                    break;
+                default:               //do nothing. response packet is error code
+                    break;
             }
         }
         else //pc reading from a register
@@ -341,6 +312,21 @@ void handle_uart_packet()
             {
                 DATAEE_WriteByte(EEP_VOLT_CALIB_PP_OFF+2*cell,p.payload[3]);
                 DATAEE_WriteByte(EEP_VOLT_CALIB_PP_OFF+2*cell+1,p.payload[4]);
+            }
+            else if(addr == REG_CURR_LOWV_SCA)
+            {
+                DATAEE_WriteByte(EEP_CURR_LOWV_SCA+2*cell,p.payload[3]);
+                DATAEE_WriteByte(EEP_CURR_LOWV_SCA+2*cell+1,p.payload[4]);
+            }
+            else if(addr == REG_CURR_LOWV_OFF)
+            {
+                DATAEE_WriteByte(EEP_CURR_LOWV_OFF+2*cell,p.payload[3]);
+                DATAEE_WriteByte(EEP_CURR_LOWV_OFF+2*cell+1,p.payload[4]);
+            }
+            else if(addr == REG_CURR_LOWV_OFF_SCA)
+            {
+                DATAEE_WriteByte(EEP_CURR_LOWV_OFF_SCA+2*cell,p.payload[3]);
+                DATAEE_WriteByte(EEP_CURR_LOWV_OFF_SCA+2*cell+1,p.payload[4]);
             }
             else if(addr == REG_CHARGEH || addr == REG_CHARGEL)
             {
@@ -925,6 +911,7 @@ void measurement_handler()
     static int32_t  vsum[4] = {0};
     static uint32_t tsum[4] = {0};
     static uint32_t vccsum = 0;
+    static uint16_t v;
     
     static uint16_t ctr = 1;
     static uint8_t  timeslice = 0;
@@ -970,8 +957,7 @@ void measurement_handler()
         { 
             if(!unitregs[REG_LOCK])
             {
-                cellregs[timeslice][REG_CURRENT] = ((csum[timeslice] << 8) / cellregs[timeslice][REG_CURRENT_CALIB_SCA])  - (int16_t)cellregs[timeslice][REG_CURRENT_CALIB_OFF]; // (value / 1024) * 32 is the same as value >> 5 (registers expect 15 bit measurements))
-                if((int16_t)cellregs[timeslice][REG_CURRENT] < 128) {cellregs[timeslice][REG_CURRENT] = 0;} //no negative current allowed. And tiny currents are due to the offset not being appropriate for 0 Amp measurement
+                // Latch in VOLTAGE measurement
                 if(cellregs[timeslice][REG_MODE] == MODE_CHARGE)
                 {
                     cellregs[timeslice][REG_VOLTAGE] = ((vsum[timeslice] << 7) / unitregs[REG_VOLT_CH_CALIB_SCA])  - (int16_t)unitregs[REG_VOLT_CH_CALIB_OFF]; // (value / 1024) *  8 is the same as value >> 7 (registers expect 15 bit measurements))
@@ -981,6 +967,18 @@ void measurement_handler()
                     cellregs[timeslice][REG_VOLTAGE] = ((vsum[timeslice] << 7) / unitregs[REG_VOLT_DC_CALIB_SCA])  - (int16_t)unitregs[REG_VOLT_DC_CALIB_OFF]; // (value / 1024) *  8 is the same as value >> 7 (registers expect 15 bit measurements))
                 }
                 if(cellregs[timeslice][REG_VOLTAGE] & 0x8000 && cellregs[timeslice][REG_VOLTAGE] < 0x8E38  ) {cellregs[timeslice][REG_VOLTAGE] = 0x7FFF;} //only small negative voltages allowed.
+                
+                // Latch in CURRENT measurement
+                cellregs[timeslice][REG_CURRENT] = ((csum[timeslice] << 8) / cellregs[timeslice][REG_CURRENT_CALIB_SCA])  - (int16_t)cellregs[timeslice][REG_CURRENT_CALIB_OFF];
+                v = (cellregs[timeslice][REG_MODE] == MODE_CHARGE) ? (36408L - (int32_t)cellregs[timeslice][REG_VOLTAGE]) : (cellregs[timeslice][REG_VOLTAGE]); 
+                v -= ((int32_t)cellregs[timeslice][REG_CURRENT] << 10) / (int32_t)cellregs[timeslice][REG_CURR_LOWV_SCA];
+                if (v < cellregs[timeslice][REG_CURR_LOWV_OFF])
+                {
+                    cellregs[timeslice][REG_CURRENT] = (int32_t)cellregs[timeslice][REG_CURRENT] - ((((int32_t)v - (int32_t)cellregs[timeslice][REG_CURR_LOWV_OFF] )  << 10) ) / (int32_t)cellregs[timeslice][REG_CURR_LOWV_OFF_SCA];  
+                }
+                if((int16_t)cellregs[timeslice][REG_CURRENT] < (int16_t)unitregs[REG_ZERO_AMP_THRESH]) {cellregs[timeslice][REG_CURRENT] = 0;} //no negative current allowed. And tiny currents are due to the offset not being appropriate for 0 Amp measurement
+                
+                // Latch in AC voltage and current measurements
                 cellregs[timeslice][REG_CURRENT_PP] = ((  (uint32_t)(cmax[timeslice] - cmin[timeslice]) << 18U) / cellregs[timeslice][REG_CURRENT_CALIB_PP]) - (int16_t)cellregs[timeslice][REG_CURR_CALIB_PP_OFF];  //<< 5; //scale this 10 bit value into a 15 bit value
                 cellregs[timeslice][REG_VOLTAGE_PP] = ((  (uint32_t)(vmax[timeslice] - vmin[timeslice]) << 17U) / cellregs[timeslice][REG_VOLTAGE_CALIB_PP]) - (int16_t)cellregs[timeslice][REG_VOLT_CALIB_PP_OFF];  //<< 3; //scale this 12 bit value into a 15 bit value
             }
