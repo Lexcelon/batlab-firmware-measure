@@ -48,9 +48,11 @@
 #define REG_VOLTAGE_CALIB_PP   0x19 //also mapped to EEPROM
 #define REG_CURR_CALIB_PP_OFF  0x1A //also mapped to EEPROM
 #define REG_VOLT_CALIB_PP_OFF  0x1B //also mapped to EEPROM
+#define REG_CURR_LOWV_SCA      0x1C //also mapped to EEPROM
+#define REG_CURR_LOWV_OFF      0x1D //also mapped to EEPROM
+#define REG_CURR_LOWV_OFF_SCA  0x1E //also mapped to EEPROM
 
-
-#define CELLREGS_SIZE          0x1C
+#define CELLREGS_SIZE          0x1F
 
 
 
@@ -73,8 +75,9 @@
 #define REG_VOLT_DC_CALIB_OFF  0x0D //also mapped to EEPROM
 #define REG_VOLT_DC_CALIB_SCA  0x0E //also mapped to EEPROM
 #define REG_LOCK               0x0F
+#define REG_ZERO_AMP_THRESH    0x10 //also mapped to EEPROM
 
-#define UNITREGS_SIZE          0x10
+#define UNITREGS_SIZE          0x11
 
 //******************************************************************************
 //* COMMS REGISTER MAP (addr FF) commregs
@@ -107,6 +110,10 @@
 #define EEP_VOLT_DC_CALIB_SCA  0x3A //2 bytes
 #define EEP_CURR_CALIB_PP_OFF  0x3C //8 bytes
 #define EEP_VOLT_CALIB_PP_OFF  0x44 //8 bytes
+#define EEP_ZERO_AMP_THRESH    0x4C //2 bytes
+#define EEP_CURR_LOWV_SCA      0x4E //8 bytes
+#define EEP_CURR_LOWV_OFF      0x56 //8 bytes
+#define EEP_CURR_LOWV_OFF_SCA  0x5E //8 bytes
 #define EEP_BOOTLOAD_ADDR      0xFF
 //******************************************************************************
 //* Register Specific Codes and Flags
