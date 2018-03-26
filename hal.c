@@ -2,14 +2,15 @@
 #include "mcc_generated_files/mcc.h"
 #include "hal.h"
 
-#define FIRMWARE_VER 3
+#define FIRMWARE_VER 5
 
+//volatile uint32_t CHARGE[4] = {0}; //this is separate from the regfile so we don't have to copy it in the ISR
 volatile uint16_t cellregs[4][CELLREGS_SIZE] = {0};
 volatile uint16_t unitregs[UNITREGS_SIZE] = {0};
 volatile uint16_t commregs[COMMREGS_SIZE] = {0};
 packet p,q; //incoming,outgoing
 
-volatile uint32_t CHARGE[4] = {0}; //this is separate from the regfile so we don't have to copy it in the ISR
+
 volatile uint8_t SINE_COUNTER = 0;
 bool initialized = false;
 extern bool flag_restart;
@@ -94,6 +95,8 @@ void app_initialize(void)
     EEPROM2UNITREG(REG_VOLT_DC_CALIB_SCA,EEP_VOLT_DC_CALIB_SCA);
     EEPROM2UNITREG(REG_ZERO_AMP_THRESH,EEP_ZERO_AMP_THRESH); 
     if (unitregs[REG_ZERO_AMP_THRESH] == 0xFFFF) {unitregs[REG_ZERO_AMP_THRESH] = 2000;} //default uninitialized value
+    
+    unitregs[REG_WATCHDOG_TIMER] = 0x00FF;
     
     //initialize COMMS namespace
     commregs[REG_LED0] = LED_OFF;
@@ -248,11 +251,12 @@ void handle_uart_packet()
                 case REG_ZERO_AMP_THRESH:
                     PAYLOAD2UNITREG(addr,true,EEP_ZERO_AMP_THRESH);
                     break;
-                case REG_SETTINGS:     //fall-through
-                case REG_SINE_OFFSET:  //fall-through
-                case REG_SINE_MAGDIV:  //fall-through
-                case REG_LED_MESSAGE:  //fall-through
-                case REG_LOCK:         //fall-through
+                case REG_SETTINGS:       //fall-through
+                case REG_SINE_OFFSET:    //fall-through
+                case REG_SINE_MAGDIV:    //fall-through
+                case REG_LED_MESSAGE:    //fall-through
+                case REG_LOCK:           //fall-through
+                case REG_WATCHDOG_TIMER: //fall-through
                     PAYLOAD2UNITREG(addr,false,0);
                     break;
                 default:               //do nothing. response packet is error code
@@ -330,7 +334,11 @@ void handle_uart_packet()
             }
             else if(addr == REG_CHARGEH || addr == REG_CHARGEL)
             {
-                CHARGE[cell] = 0;
+                INTERRUPT_GlobalInterruptDisable();
+                //CHARGE[cell] = 0;
+                cellregs[cell][REG_CHARGEH] = 0;
+                cellregs[cell][REG_CHARGEL] = 0;
+                INTERRUPT_GlobalInterruptEnable();
             }
             if(addr < CELLREGS_SIZE)
             {
@@ -421,6 +429,7 @@ void set_flags(uint8_t i)        //use inputs to decide what the next state will
     static int16_t voltage;
     static int16_t current;
     static uint16_t temperature;
+    static uint16_t vcc;
     
     error = cellregs[i][REG_ERROR];
     mode = cellregs[i][REG_MODE];
@@ -430,8 +439,7 @@ void set_flags(uint8_t i)        //use inputs to decide what the next state will
         voltage = cellregs[i][REG_VOLTAGE];
         current = cellregs[i][REG_CURRENT];
         temperature = cellregs[i][REG_TEMPERATURE];
-        cellregs[i][REG_CHARGEL] = CHARGE[i] & 0xFFFF;
-        cellregs[i][REG_CHARGEH] = CHARGE[i] >> 16;
+        vcc = unitregs[REG_VCC];
     INTERRUPT_GlobalInterruptEnable();
     
     // perform safety and status checks and update the status variable 
@@ -447,7 +455,8 @@ void set_flags(uint8_t i)        //use inputs to decide what the next state will
     status = (!commregs[REG_PSU]) ? status | STAT_NO_PSU : status & ~STAT_NO_PSU;
     status = (unitregs[REG_SERIAL_NUM] == 0xFFFF || unitregs[REG_DEVICE_ID] == 0xFFFF) ? status | STAT_NOT_INITIALIZED : status & ~STAT_NOT_INITIALIZED;
     status = (unitregs[REG_VOLT_CH_CALIB_SCA] == 0xFFFF || cellregs[i][REG_CURRENT_CALIB_SCA] == 0xFFFF) ? status | STAT_NOT_CALIBRATED : status & ~STAT_NOT_CALIBRATED;
-
+    //note that the vcc adc variable has an inverse relationship with real vcc, hence the '>' comparisons
+    status = (vcc > MIN_VCC) ? status | STAT_LOW_VCC : status & ~STAT_LOW_VCC;
     //state machine for cell MODE
     switch(mode)
     {
@@ -474,6 +483,7 @@ void set_flags(uint8_t i)        //use inputs to decide what the next state will
             if(status & STAT_CURRENT_LIMIT_CHG) {mode = MODE_STOPPED; error |= ERR_CURRENT_LIMIT_CHG;}
             if(status & STAT_TEMP_LIMIT_CHG) {mode = MODE_STOPPED; error |= ERR_TEMP_LIMIT_CHG;}
             if(status & STAT_NO_PSU) {mode = MODE_STOPPED; error |= ERR_NO_PSU;}
+            if(status & STAT_LOW_VCC) {mode = MODE_STOPPED; error |= ERR_LOW_VCC;}
             break;
         case MODE_IMPEDANCE:
             LED_CMD(i,LED_SINE);
@@ -482,6 +492,7 @@ void set_flags(uint8_t i)        //use inputs to decide what the next state will
             if(status & STAT_VOLTAGE_LIMIT_DCHG) {mode = MODE_STOPPED; error |= ERR_VOLTAGE_LIMIT_DCHG;}
             if(status & STAT_CURRENT_LIMIT_DCHG) {mode = MODE_STOPPED; error |= ERR_CURRENT_LIMIT_DCHG;}
             if(status & STAT_TEMP_LIMIT_DCHG) {mode = MODE_STOPPED; error |= ERR_TEMP_LIMIT_DCHG;}
+            if(status & STAT_LOW_VCC) {mode = MODE_STOPPED; error |= ERR_LOW_VCC;}
             break;
         case MODE_DISCHARGE:
             LED_CMD(i,LED_RAMP_DOWN);
@@ -490,6 +501,9 @@ void set_flags(uint8_t i)        //use inputs to decide what the next state will
             if(status & STAT_VOLTAGE_LIMIT_DCHG) {mode = MODE_STOPPED; error |= ERR_VOLTAGE_LIMIT_DCHG;}
             if(status & STAT_CURRENT_LIMIT_DCHG) {mode = MODE_STOPPED; error |= ERR_CURRENT_LIMIT_DCHG;}
             if(status & STAT_TEMP_LIMIT_DCHG) {mode = MODE_STOPPED; error |= ERR_TEMP_LIMIT_DCHG;}
+            if(status & STAT_LOW_VCC) {mode = MODE_STOPPED; error |= ERR_LOW_VCC;}
+            if(unitregs[REG_SETTINGS] & SET_NO_PSU_DCHG_ENABLE){break;}
+            if(status & STAT_NO_PSU) {mode = MODE_STOPPED; error |= ERR_NO_PSU;}
             break;
         case MODE_STOPPED:
             LED_CMD(i,LED_ON);
@@ -718,14 +732,12 @@ void SET_LED_MSG(uint16_t state)
 void ADC_VDD(void)
 {
     ADREF = 0x00;
-    //ADACQ = 0x20; //32 us aquisition time
     while(!FVR_IsOutputReady());
 }
 
 void ADC_FVR(void)
 {
     ADREF = 0x03;
-    //ADACQ = 0x03; //3 us aquisition time
     while(!FVR_IsOutputReady());
 }
 
@@ -823,11 +835,14 @@ int16_t SPI_Get12BitSample(uint8_t cell) //50 us
     return result.voltage;
 }
 
-void SetDuty(uint8_t cell, uint16_t duty) //duty should be 15 bit unsigned
+void SetDuty(uint8_t cell, uint16_t dutysetpoint) //duty should be 15 bit unsigned
 {
     static int8_t compensation[4] = {0};
     static uint16_t cprev[4] = {0};
+    static uint16_t cduty[4] = 0;
+    uint16_t duty;
     uint16_t current;
+    
     
     INTERRUPT_GlobalInterruptDisable();
     current = cellregs[cell][REG_CURRENT];
@@ -837,22 +852,33 @@ void SetDuty(uint8_t cell, uint16_t duty) //duty should be 15 bit unsigned
     //     VCC
     //duty/640 * 5V = 2.048V * reg / 2**15
     //duty * 5 * 2**15 / (640 * 2.048 ) = reg
+    duty = cduty[cell];
+    if(duty < dutysetpoint) {duty++;}
+    if(duty > dutysetpoint) {duty--;}
+    if(dutysetpoint == 0) {duty=0;}
+    
     if(duty > 0)
     {
         if(unitregs[REG_SETTINGS] & SET_TRIM_OUTPUT)
         {
             if( current != cprev[cell] )
             {
-                cellregs[cell][REG_COMPENSATION] = compensation[cell];
                 if( (current << 1) > ((duty + 1) * 125)  )
                 {  //If we are trying to send less than actual, then send less
-                    --compensation[cell];
+                    if(compensation[cell] > -99)
+                    {
+                        --compensation[cell];
+                    }
                 }
                 else if ((current << 1) < ((duty ) * 125)  )
                 {
-                    ++compensation[cell];   
+                    if(compensation[cell] < 99)
+                    {
+                        ++compensation[cell]; 
+                    }
                 }
                 cprev[cell] = current; 
+                cellregs[cell][REG_COMPENSATION] = compensation[cell];
             }
             duty = (int16_t)duty + compensation[cell]; //if we aren't too far off the mark, duty stays the same
         } 
@@ -867,6 +893,10 @@ void SetDuty(uint8_t cell, uint16_t duty) //duty should be 15 bit unsigned
         if(duty > 900) {duty = 0;}
         if(duty > 640) {duty = 640;}
     }
+    else
+    {
+        compensation[cell] = 0;
+    }
     cellregs[cell][REG_DUTY] = duty;
     switch(cell)
     { 
@@ -875,6 +905,7 @@ void SetDuty(uint8_t cell, uint16_t duty) //duty should be 15 bit unsigned
         case 2: PWM3_LoadDutyValue(duty); break;
         case 3: PWM2_LoadDutyValue(duty); break;
     }
+    cduty[cell] = duty;
 }
 
 void TMR0_ISR(void) //10 Hz
@@ -887,8 +918,34 @@ void TMR2_ISR(void) //10 khz
     static uint16_t ctr = 0;
     if(initialized == false){return;}
     if(unitregs[REG_SETTINGS] & SET_DEBUG){LED_MSG_SetLow();}
-    if(ctr == 999){unitregs[REG_SYSTEM_TIMER]++;ctr = 0;} //10Hz system timer
-    else {ctr++;}
+    if(ctr == 999)
+    {
+        unitregs[REG_SYSTEM_TIMER]++;
+        ctr = 0; //10Hz system timer
+        if(unitregs[REG_SETTINGS] & SET_WATCHDOG)
+        {
+            if( unitregs[REG_WATCHDOG_TIMER] )
+            {
+                unitregs[REG_WATCHDOG_TIMER]--;   
+            }
+            else
+            {
+                cellregs[0][REG_MODE] = MODE_STOPPED;
+                cellregs[1][REG_MODE] = MODE_STOPPED;
+                cellregs[2][REG_MODE] = MODE_STOPPED;
+                cellregs[3][REG_MODE] = MODE_STOPPED;
+                PWM1_LoadDutyValue(0);
+                PWM4_LoadDutyValue(0);
+                PWM3_LoadDutyValue(0);
+                PWM2_LoadDutyValue(0);
+            }
+        }
+    }
+    else 
+    {
+        ctr++;
+    }
+    
     SINE_COUNTER+=unitregs[REG_SINE_FREQ];
     
     if(cellregs[0][REG_MODE]==MODE_IMPEDANCE){PWM1_LoadDutyValue(  unitregs[REG_SINE_OFFSET] + (SINETABLE[SINE_COUNTER] >> unitregs[REG_SINE_MAGDIV]) );}
@@ -912,6 +969,8 @@ void measurement_handler()
     static uint32_t tsum[4] = {0};
     static uint32_t vccsum = 0;
     static uint16_t v;
+    static uint16_t c;
+    static uint32_t chg = 0;
     
     static uint16_t ctr = 1;
     static uint8_t  timeslice = 0;
@@ -924,6 +983,18 @@ void measurement_handler()
         current = ADC_Get10BitCurrent(timeslice);                              //get the measurements 70 us
         voltage = SPI_Get12BitSample(timeslice); 
         current += ADC_Get10BitCurrent(timeslice);
+        if(current > 2046) //Fuse in danger of blowing - catch and respond to this real fast
+        {
+            cellregs[timeslice][REG_MODE] = MODE_STOPPED;
+            cellregs[timeslice][REG_ERROR] |= ERR_HW_CURRENT_LIMIT;
+            switch(timeslice)
+            { 
+                case 0: PWM1_LoadDutyValue(0); break;
+                case 1: PWM4_LoadDutyValue(0); break;
+                case 2: PWM3_LoadDutyValue(0); break;
+                case 3: PWM2_LoadDutyValue(0); break;
+            }
+        }
         csum[timeslice] += current;
         vsum[timeslice] += voltage;
         //c2sum[timeslice] += (uint32_t)current * current;
@@ -955,41 +1026,60 @@ void measurement_handler()
         ctr = 0;
         if(timeslice < 4)
         { 
-            if(!unitregs[REG_LOCK])
+            
+            // Latch in VOLTAGE measurement
+            if(cellregs[timeslice][REG_MODE] == MODE_CHARGE)
             {
-                // Latch in VOLTAGE measurement
-                if(cellregs[timeslice][REG_MODE] == MODE_CHARGE)
-                {
-                    cellregs[timeslice][REG_VOLTAGE] = ((vsum[timeslice] << 7) / unitregs[REG_VOLT_CH_CALIB_SCA])  - (int16_t)unitregs[REG_VOLT_CH_CALIB_OFF]; // (value / 1024) *  8 is the same as value >> 7 (registers expect 15 bit measurements))
-                }
-                else
-                {
-                    cellregs[timeslice][REG_VOLTAGE] = ((vsum[timeslice] << 7) / unitregs[REG_VOLT_DC_CALIB_SCA])  - (int16_t)unitregs[REG_VOLT_DC_CALIB_OFF]; // (value / 1024) *  8 is the same as value >> 7 (registers expect 15 bit measurements))
-                }
-                if(cellregs[timeslice][REG_VOLTAGE] & 0x8000 && cellregs[timeslice][REG_VOLTAGE] < 0x8E38  ) {cellregs[timeslice][REG_VOLTAGE] = 0x7FFF;} //only small negative voltages allowed.
-                
-                // Latch in CURRENT measurement
-                cellregs[timeslice][REG_CURRENT] = ((csum[timeslice] << 8) / cellregs[timeslice][REG_CURRENT_CALIB_SCA])  - (int16_t)cellregs[timeslice][REG_CURRENT_CALIB_OFF];
+                cellregs[timeslice][REG_VOLTAGE] = ((vsum[timeslice] << 7) / unitregs[REG_VOLT_CH_CALIB_SCA])  - (int16_t)unitregs[REG_VOLT_CH_CALIB_OFF]; // (value / 1024) *  8 is the same as value >> 7 (registers expect 15 bit measurements))
+            }
+            else
+            {
+                cellregs[timeslice][REG_VOLTAGE] = ((vsum[timeslice] << 7) / unitregs[REG_VOLT_DC_CALIB_SCA])  - (int16_t)unitregs[REG_VOLT_DC_CALIB_OFF]; // (value / 1024) *  8 is the same as value >> 7 (registers expect 15 bit measurements))
+            }
+            if(cellregs[timeslice][REG_VOLTAGE] & 0x8000 && cellregs[timeslice][REG_VOLTAGE] < 0x8E38  ) {cellregs[timeslice][REG_VOLTAGE] = 0x7FFF;} //only small negative voltages allowed.
+
+            // Latch in CURRENT measurement
+            if(cellregs[timeslice][REG_MODE] == MODE_CHARGE || cellregs[timeslice][REG_MODE] == MODE_DISCHARGE || cellregs[timeslice][REG_MODE] == MODE_IMPEDANCE)
+            {
+                c = ((csum[timeslice] << 8) / cellregs[timeslice][REG_CURRENT_CALIB_SCA])  - (int16_t)cellregs[timeslice][REG_CURRENT_CALIB_OFF];
                 v = (cellregs[timeslice][REG_MODE] == MODE_CHARGE) ? (36408L - (int32_t)cellregs[timeslice][REG_VOLTAGE]) : (cellregs[timeslice][REG_VOLTAGE]); 
-                v -= ((int32_t)cellregs[timeslice][REG_CURRENT] << 10) / (int32_t)cellregs[timeslice][REG_CURR_LOWV_SCA];
+                v -= ((int32_t)c << 10) / (int32_t)cellregs[timeslice][REG_CURR_LOWV_SCA];
                 if (v < cellregs[timeslice][REG_CURR_LOWV_OFF])
                 {
-                    cellregs[timeslice][REG_CURRENT] = (int32_t)cellregs[timeslice][REG_CURRENT] - ((((int32_t)v - (int32_t)cellregs[timeslice][REG_CURR_LOWV_OFF] )  << 10) ) / (int32_t)cellregs[timeslice][REG_CURR_LOWV_OFF_SCA];  
+                    c = (int32_t)c - ((((int32_t)v - (int32_t)cellregs[timeslice][REG_CURR_LOWV_OFF] )  << 10) ) / (int32_t)cellregs[timeslice][REG_CURR_LOWV_OFF_SCA];  
                 }
-                if((int16_t)cellregs[timeslice][REG_CURRENT] < (int16_t)unitregs[REG_ZERO_AMP_THRESH]) {cellregs[timeslice][REG_CURRENT] = 0;} //no negative current allowed. And tiny currents are due to the offset not being appropriate for 0 Amp measurement
-                
+                if((int16_t)c < (int16_t)unitregs[REG_ZERO_AMP_THRESH]) {c = 0;} //no negative current allowed. And tiny currents are due to the offset not being appropriate for 0 Amp measurement
+            }
+            else
+            {
+                c = 0;
+            }
+            cellregs[timeslice][REG_CURRENT] = c;
+            
+            chg = ((uint32_t)(cellregs[timeslice][REG_CHARGEH]) << 16U) + (uint32_t)cellregs[timeslice][REG_CHARGEL];
+            chg += (uint32_t)c;
+            cellregs[timeslice][REG_CHARGEL] = ((uint32_t)chg) & 0x0000FFFFU;
+            cellregs[timeslice][REG_CHARGEH] = chg >> 16;
+
+            if(!unitregs[REG_LOCK])
+            {   
                 // Latch in AC voltage and current measurements
                 cellregs[timeslice][REG_CURRENT_PP] = ((  (uint32_t)(cmax[timeslice] - cmin[timeslice]) << 18U) / cellregs[timeslice][REG_CURRENT_CALIB_PP]) - (int16_t)cellregs[timeslice][REG_CURR_CALIB_PP_OFF];  //<< 5; //scale this 10 bit value into a 15 bit value
                 cellregs[timeslice][REG_VOLTAGE_PP] = ((  (uint32_t)(vmax[timeslice] - vmin[timeslice]) << 17U) / cellregs[timeslice][REG_VOLTAGE_CALIB_PP]) - (int16_t)cellregs[timeslice][REG_VOLT_CALIB_PP_OFF];  //<< 3; //scale this 12 bit value into a 15 bit value
             }
+                
             cmax[timeslice] = 0;
             cmin[timeslice] = 0xFFFF;
             vmax[timeslice] = 0x0000;
             vmin[timeslice] = 0x7FFF;
-            CHARGE[timeslice] += cellregs[timeslice][REG_CURRENT];
             csum[timeslice] = 0;
             vsum[timeslice] = 0;
-            if(timeslice==3) {ADC_VDD();} //set the reference up for temperature measurement
+            if(timeslice==3) 
+            {
+                //ADC_VDD();  //Manually inlining this function with the below two lines of code
+                ADREF = 0x00;
+                while(!FVR_IsOutputReady());
+            } //set the reference up for temperature measurement
             timeslice++;
         }
         else if (timeslice == 4)    //temperature and VCC update
@@ -1016,7 +1106,10 @@ void measurement_handler()
             }
             vccsum  = 0;
             ADCLK = 0x1F;
-            ADC_FVR();    //set it back up for current measurement
+            //ADC_FVR();    //set it back up for current measurement  -- manually inlining this function
+            ADREF = 0x03;
+            while(!FVR_IsOutputReady());
+            
             timeslice = 0; //break is over. time to get back to work
             
         }

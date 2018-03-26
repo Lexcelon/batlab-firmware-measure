@@ -62,10 +62,13 @@ void FVR_Initialize(void) //2.048
     
 }
 
-bool FVR_IsOutputReady(void)
-{
-    return (FVRCONbits.FVRRDY);
-}
+//The Free version of the XC8 compiler does not actually inline functions even if you
+//use the inline keyword, so instead I'm just going to do it myself with macros
+//bool FVR_IsOutputReady(void)
+//{
+//    return (FVRCONbits.FVRRDY);
+//}
+
 /**
  End of File
 */

@@ -68,10 +68,15 @@ void SPI1_Initialize(void)
     SSP1STAT = 0x00;
     
     // SSPEN enabled; CKP Idle:Low, Active:High; SSPM FOSC/64; 
-    SSP1CON1 = 0x2A; //was 0x22. 0x2A with sspadd=6 sets the freq to 2.286 mhz.
+    SSP1CON1 = 0x2A; //was 0x22. Then was 0x2A which lets you set frequency with SSPADD
+    
+    //To set the clock frequency, the formula is f = 64 / (4 * (SSP1ADD + 1)) MHz.
+    //SSPADD 6 -> 2.2857 MHz
+    //SSPADD 7 -> 2 MHz           * Select this one * because MCP3304 has max freq of 2.1 MHz!
+    //SSPADD 8 -> 1.777 MHz
     
     // SSPADD 0; 
-    SSP1ADD = 0x06;
+    SSP1ADD = 0x07;
 }
 
 uint8_t SPI1_Exchange8bit(uint8_t data)

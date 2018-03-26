@@ -41,8 +41,11 @@ void main(void)
     for(i=0;i<400000;i++); //give the system time to initialize the measurements over the interrupts
     //if you don't do this, then the status flags will erroneously be thrown on startup
     
+    WDTCON0 |= 0x01; //enable the watchdog timer
+    
     while(1)
     {
+        CLRWDT();
         if(PORTEbits.RE3 == 0 || flag_restart == true)
         {
             asm("reset");

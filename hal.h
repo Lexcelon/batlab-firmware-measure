@@ -76,8 +76,9 @@
 #define REG_VOLT_DC_CALIB_SCA  0x0E //also mapped to EEPROM
 #define REG_LOCK               0x0F
 #define REG_ZERO_AMP_THRESH    0x10 //also mapped to EEPROM
+#define REG_WATCHDOG_TIMER     0x11 
 
-#define UNITREGS_SIZE          0x11
+#define UNITREGS_SIZE          0x12
 
 //******************************************************************************
 //* COMMS REGISTER MAP (addr FF) commregs
@@ -135,6 +136,8 @@
 #define ERR_BACKWARDS          0x0040
 #define ERR_NO_CELL            0x0080
 #define ERR_NO_PSU             0x0100
+#define ERR_HW_CURRENT_LIMIT   0x0200
+#define ERR_LOW_VCC            0x0800
 
 #define STAT_VOLTAGE_LIMIT_CHG  0x0001
 #define STAT_VOLTAGE_LIMIT_DCHG 0x0002
@@ -147,9 +150,12 @@
 #define STAT_NO_PSU             0x0100
 #define STAT_NOT_INITIALIZED    0x0200
 #define STAT_NOT_CALIBRATED     0x0400
+#define STAT_LOW_VCC            0x0800
 
 #define SET_TRIM_OUTPUT        0x0001
 #define SET_VCC_COMPENSATION   0x0002
+#define SET_WATCHDOG           0x0004
+#define SET_NO_PSU_DCHG_ENABLE 0x0008
 #define SET_SAFETY_DISABLE     0x4000
 #define SET_DEBUG              0x8000
 
@@ -175,8 +181,9 @@
 #define MAX_PACKET_LENGTH 15
 
 #define MAXTOL 10
-#define NC_VOLTAGE 13107 //1.8volts
+#define NC_VOLTAGE 13107 //1.8 Volts
 #define BACKWARDS_VOLTAGE 73 //0.01 Volts
+#define MIN_VCC 31581 //4.25 Volts
 
 typedef struct packets
 {

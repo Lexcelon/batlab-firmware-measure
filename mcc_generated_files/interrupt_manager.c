@@ -47,6 +47,7 @@
 
 #include "interrupt_manager.h"
 #include "mcc.h"
+#include "../hal.h"
 
 void  INTERRUPT_Initialize (void)
 {

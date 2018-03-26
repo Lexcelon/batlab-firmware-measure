@@ -123,7 +123,8 @@
     }
     </code>
 */
-bool FVR_IsOutputReady(void);
+//bool FVR_IsOutputReady(void);
+#define FVR_IsOutputReady() FVRCONbits.FVRRDY
 
 #ifdef __cplusplus  // Provide C++ Compatibility
 

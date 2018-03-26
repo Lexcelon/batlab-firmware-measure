@@ -49,7 +49,7 @@
 
 // CONFIG3L
 #pragma config WDTCPS = WDTCPS_31    // ->Divider ratio 1:65536; software control of WDTPS
-#pragma config WDTE = OFF    // WDT operating mode->WDT Disabled
+#pragma config WDTE = ON    // WDT operating mode->WDT Disabled
 
 // CONFIG3H
 #pragma config WDTCWS = WDTCWS_7    // WDT Window Select bits->window always open (100%); software control; keyed access not required
@@ -114,6 +114,7 @@ unsigned char validate(void);
 void main(void) 
 {
     unsigned long j = 0;
+    WDTCON0 &= ~0x01; //disable the watchdog timer
     while(j<400000){j++;}
     initialize();
     if(DATAEE_ReadByte(BOOTLOAD_FLAG_ADDR) || PORTEbits.RE3 == 0 || !validate())
@@ -362,6 +363,6 @@ unsigned char uart_rx()
         RC1STAbits.CREN = 1;
     }
 
-    while (!PIR3bits.RCIF);
+    while (!PIR3bits.RCIF){CLRWDT();}
     return RC1REG;
 }
