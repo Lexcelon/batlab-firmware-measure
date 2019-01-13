@@ -2,7 +2,7 @@
 #include "mcc_generated_files/mcc.h"
 #include "hal.h"
 
-#define FIRMWARE_VER 5
+#define FIRMWARE_VER 7
 
 //volatile uint32_t CHARGE[4] = {0}; //this is separate from the regfile so we don't have to copy it in the ISR
 volatile uint16_t cellregs[4][CELLREGS_SIZE] = {0};
@@ -978,6 +978,11 @@ void measurement_handler()
     static uint16_t current;
     static int16_t  voltage;
     
+    if(unitregs[REG_SETTINGS] & SET_CH0_HI_RES_MODE){timeslice = 0;}
+    if(unitregs[REG_SETTINGS] & SET_CH1_HI_RES_MODE){timeslice = 1;}
+    if(unitregs[REG_SETTINGS] & SET_CH2_HI_RES_MODE){timeslice = 2;}
+    if(unitregs[REG_SETTINGS] & SET_CH3_HI_RES_MODE){timeslice = 3;}
+    
     if(timeslice < 4)
     {
         current = ADC_Get10BitCurrent(timeslice);                              //get the measurements 70 us
@@ -1074,7 +1079,7 @@ void measurement_handler()
             vmin[timeslice] = 0x7FFF;
             csum[timeslice] = 0;
             vsum[timeslice] = 0;
-            if(timeslice==3) 
+            if(timeslice==3 && !(unitregs[REG_SETTINGS] & SET_CH3_HI_RES_MODE)) 
             {
                 //ADC_VDD();  //Manually inlining this function with the below two lines of code
                 ADREF = 0x00;

@@ -156,6 +156,10 @@
 #define SET_VCC_COMPENSATION   0x0002
 #define SET_WATCHDOG           0x0004
 #define SET_NO_PSU_DCHG_ENABLE 0x0008
+#define SET_CH0_HI_RES_MODE    0x0010
+#define SET_CH1_HI_RES_MODE    0x0020
+#define SET_CH2_HI_RES_MODE    0x0040
+#define SET_CH3_HI_RES_MODE    0x0080
 #define SET_SAFETY_DISABLE     0x4000
 #define SET_DEBUG              0x8000
 
