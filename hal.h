@@ -126,6 +126,8 @@
 #define MODE_DISCHARGE         0x0004
 #define MODE_IMPEDANCE         0x0005
 #define MODE_STOPPED           0x0006
+#define MODE_CV_CHARGE         0x0007
+#define MODE_CV_DISCHARGE      0x0008
 
 #define ERR_VOLTAGE_LIMIT_CHG  0x0001
 #define ERR_VOLTAGE_LIMIT_DCHG 0x0002
@@ -160,6 +162,7 @@
 #define SET_CH1_HI_RES_MODE    0x0020
 #define SET_CH2_HI_RES_MODE    0x0040
 #define SET_CH3_HI_RES_MODE    0x0080
+#define SET_CV_DISCHARGE       0x0100
 #define SET_SAFETY_DISABLE     0x4000
 #define SET_DEBUG              0x8000
 

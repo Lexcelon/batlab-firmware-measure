@@ -2,7 +2,7 @@
 #include "mcc_generated_files/mcc.h"
 #include "hal.h"
 
-#define FIRMWARE_VER 7
+#define FIRMWARE_VER 8
 
 //volatile uint32_t CHARGE[4] = {0}; //this is separate from the regfile so we don't have to copy it in the ISR
 volatile uint16_t cellregs[4][CELLREGS_SIZE] = {0};
@@ -477,8 +477,8 @@ void set_flags(uint8_t i)        //use inputs to decide what the next state will
             break;
         case MODE_CHARGE:
             LED_CMD(i,LED_RAMP_UP);
+            if(status & STAT_VOLTAGE_LIMIT_CHG) {mode = MODE_CV_CHARGE;}
             if(unitregs[REG_SETTINGS] & SET_SAFETY_DISABLE){break;}
-            if(status & STAT_VOLTAGE_LIMIT_CHG) {mode = MODE_STOPPED; error |= ERR_VOLTAGE_LIMIT_CHG;}
             if(status & STAT_VOLTAGE_LIMIT_DCHG) {mode = MODE_STOPPED; error |= ERR_VOLTAGE_LIMIT_DCHG;}
             if(status & STAT_CURRENT_LIMIT_CHG) {mode = MODE_STOPPED; error |= ERR_CURRENT_LIMIT_CHG;}
             if(status & STAT_TEMP_LIMIT_CHG) {mode = MODE_STOPPED; error |= ERR_TEMP_LIMIT_CHG;}
@@ -496,14 +496,41 @@ void set_flags(uint8_t i)        //use inputs to decide what the next state will
             break;
         case MODE_DISCHARGE:
             LED_CMD(i,LED_RAMP_DOWN);
+            if(status & STAT_VOLTAGE_LIMIT_DCHG) {
+                if(unitregs[REG_SETTINGS] & SET_CV_DISCHARGE) {
+                    mode = MODE_CV_DISCHARGE;
+                } else {
+                    mode = MODE_STOPPED;
+                    error |= ERR_VOLTAGE_LIMIT_DCHG;
+                }
+            }
             if(unitregs[REG_SETTINGS] & SET_SAFETY_DISABLE){break;}
             if(status & STAT_VOLTAGE_LIMIT_CHG) {mode = MODE_STOPPED; error |= ERR_VOLTAGE_LIMIT_CHG;}
-            if(status & STAT_VOLTAGE_LIMIT_DCHG) {mode = MODE_STOPPED; error |= ERR_VOLTAGE_LIMIT_DCHG;}
             if(status & STAT_CURRENT_LIMIT_DCHG) {mode = MODE_STOPPED; error |= ERR_CURRENT_LIMIT_DCHG;}
             if(status & STAT_TEMP_LIMIT_DCHG) {mode = MODE_STOPPED; error |= ERR_TEMP_LIMIT_DCHG;}
             if(status & STAT_LOW_VCC) {mode = MODE_STOPPED; error |= ERR_LOW_VCC;}
             if(unitregs[REG_SETTINGS] & SET_NO_PSU_DCHG_ENABLE){break;}
             if(status & STAT_NO_PSU) {mode = MODE_STOPPED; error |= ERR_NO_PSU;}
+            break;
+        case MODE_CV_CHARGE:
+            LED_CMD(i,LED_RAMP_UP);
+            if(unitregs[REG_SETTINGS] & SET_SAFETY_DISABLE){break;}
+            // if(status & STAT_VOLTAGE_LIMIT_CHG) {mode = MODE_STOPPED; error |= ERR_VOLTAGE_LIMIT_CHG;}
+            if(status & STAT_VOLTAGE_LIMIT_DCHG) {mode = MODE_STOPPED; error |= ERR_VOLTAGE_LIMIT_DCHG;}
+            if(status & STAT_CURRENT_LIMIT_CHG) {mode = MODE_STOPPED; error |= ERR_CURRENT_LIMIT_CHG;}
+            if(status & STAT_TEMP_LIMIT_CHG) {mode = MODE_STOPPED; error |= ERR_TEMP_LIMIT_CHG;}
+            if(status & STAT_NO_PSU) {mode = MODE_STOPPED; error |= ERR_NO_PSU;}
+            if(status & STAT_LOW_VCC) {mode = MODE_STOPPED; error |= ERR_LOW_VCC;}
+            break;
+        case MODE_CV_DISCHARGE:
+            LED_CMD(i,LED_RAMP_DOWN);
+            if(unitregs[REG_SETTINGS] & SET_SAFETY_DISABLE){break;}
+            if(status & STAT_VOLTAGE_LIMIT_CHG) {mode = MODE_STOPPED; error |= ERR_VOLTAGE_LIMIT_CHG;}
+            // if(status & STAT_VOLTAGE_LIMIT_DCHG) {mode = MODE_STOPPED; error |= ERR_VOLTAGE_LIMIT_DCHG;}
+            if(status & STAT_CURRENT_LIMIT_DCHG) {mode = MODE_STOPPED; error |= ERR_CURRENT_LIMIT_DCHG;}
+            if(status & STAT_TEMP_LIMIT_DCHG) {mode = MODE_STOPPED; error |= ERR_TEMP_LIMIT_DCHG;}
+            if(status & STAT_NO_PSU) {mode = MODE_STOPPED; error |= ERR_NO_PSU;}
+            if(status & STAT_LOW_VCC) {mode = MODE_STOPPED; error |= ERR_LOW_VCC;}
             break;
         case MODE_STOPPED:
             LED_CMD(i,LED_ON);
@@ -571,7 +598,7 @@ void send_psu()
 //******************************************************************************
 void set_relays(uint8_t i)       //set the outputs for the next state
 {
-    if(cellregs[i][REG_MODE] == MODE_CHARGE)
+    if(cellregs[i][REG_MODE] == MODE_CHARGE || cellregs[i][REG_MODE] == MODE_CV_CHARGE)
     {
         switch(i)
         {
@@ -600,7 +627,7 @@ void set_currents(uint8_t i)
 {
     uint16_t mode = cellregs[i][REG_MODE];
 
-    if(mode == MODE_CHARGE || mode == MODE_DISCHARGE)
+    if(mode == MODE_CHARGE || mode == MODE_DISCHARGE || mode == MODE_CV_CHARGE || mode == MODE_CV_DISCHARGE)
     {
         SetDuty(i,cellregs[i][REG_CURRENT_SETPOINT]);
     }
@@ -634,7 +661,7 @@ void set_fan(uint8_t i)       //set the outputs for the next state
         fan_flag = 0;
     }
     
-    if(mode == MODE_CHARGE || mode == MODE_DISCHARGE || mode == MODE_IMPEDANCE)
+    if(mode == MODE_CHARGE || mode == MODE_DISCHARGE || mode == MODE_IMPEDANCE || mode == MODE_CV_CHARGE || mode == MODE_CV_DISCHARGE)
     {
         fan_flag++;
         fan_on_timer = timer;
@@ -839,73 +866,94 @@ void SetDuty(uint8_t cell, uint16_t dutysetpoint) //duty should be 15 bit unsign
 {
     static int8_t compensation[4] = {0};
     static uint16_t cprev[4] = {0};
-    static uint16_t cduty[4] = 0;
-    uint16_t duty;
+    static uint16_t vprev[4];
+    static uint16_t ramped_duty[4] = {0};
+    static uint16_t duty[4] = {0};
     uint16_t current;
-    
-    
-    INTERRUPT_GlobalInterruptDisable();
-    current = cellregs[cell][REG_CURRENT];
-    INTERRUPT_GlobalInterruptEnable();
+    uint16_t voltage;
+
     //duty Cycle is out of 640 if PR2 = 159
     //640 = 5V = 10A
     //     VCC
     //duty/640 * 5V = 2.048V * reg / 2**15
     //duty * 5 * 2**15 / (640 * 2.048 ) = reg
-    duty = cduty[cell];
-    if(duty < dutysetpoint) {duty++;}
-    if(duty > dutysetpoint) {duty--;}
-    if(dutysetpoint == 0) {duty=0;}
-    
-    if(duty > 0)
-    {
-        if(unitregs[REG_SETTINGS] & SET_TRIM_OUTPUT)
-        {
-            if( current != cprev[cell] )
-            {
-                if( (current << 1) > ((duty + 1) * 125)  )
-                {  //If we are trying to send less than actual, then send less
-                    if(compensation[cell] > -99)
-                    {
-                        --compensation[cell];
-                    }
-                }
-                else if ((current << 1) < ((duty ) * 125)  )
-                {
-                    if(compensation[cell] < 99)
-                    {
-                        ++compensation[cell]; 
-                    }
-                }
-                cprev[cell] = current; 
-                cellregs[cell][REG_COMPENSATION] = compensation[cell];
-            }
-            duty = (int16_t)duty + compensation[cell]; //if we aren't too far off the mark, duty stays the same
-        } 
-        else if(unitregs[REG_SETTINGS] & SET_VCC_COMPENSATION)
-        {
-            uint32_t temp;
-            INTERRUPT_GlobalInterruptDisable();
-            temp = (uint32_t)((unitregs[REG_VCC] + 16) >> 5) * (uint32_t)duty * 625UL;
-            INTERRUPT_GlobalInterruptEnable();
-            duty = (temp + (262144UL)) >> 19;
+
+    if (dutysetpoint == 0) {
+        compensation[cell] = 0;
+        duty[cell] = 0;
+        ramped_duty[cell] = 0;
+    }
+    else if ( cellregs[cell][REG_MODE] == MODE_CV_CHARGE ) {
+        INTERRUPT_GlobalInterruptDisable();
+        voltage = cellregs[cell][REG_VOLTAGE];
+        INTERRUPT_GlobalInterruptEnable();
+        if(voltage != vprev[cell]) {
+            if (voltage > (int16_t)cellregs[cell][REG_VOLTAGE_LIMIT_CHG]) {--duty[cell];}
+            if (duty[cell] == 0) {cellregs[cell][REG_MODE] = MODE_STOPPED;}
+            vprev[cell] = voltage;
         }
-        if(duty > 900) {duty = 0;}
-        if(duty > 640) {duty = 640;}
+    }
+    else if ( cellregs[cell][REG_MODE] == MODE_CV_DISCHARGE ) {
+        INTERRUPT_GlobalInterruptDisable();
+        voltage = cellregs[cell][REG_VOLTAGE];
+        INTERRUPT_GlobalInterruptEnable();
+        if(voltage != vprev[cell]) {
+            if (voltage < (int16_t)cellregs[cell][REG_VOLTAGE_LIMIT_DCHG]) {--duty[cell];}
+            if (duty[cell] == 0) {cellregs[cell][REG_MODE] = MODE_STOPPED;}
+            vprev[cell] = voltage;
+        }
+    }
+    else if(unitregs[REG_SETTINGS] & SET_TRIM_OUTPUT)
+    {
+        INTERRUPT_GlobalInterruptDisable();
+        current = cellregs[cell][REG_CURRENT];
+        INTERRUPT_GlobalInterruptEnable();
+        if( current != cprev[cell] )
+        {
+            if( (current << 1) > ((ramped_duty[cell] * 125) + 62)  )
+            {  //If we are trying to send less than actual, then send less
+                if(compensation[cell] > -99)
+                {
+                    --compensation[cell];
+                }
+            }
+            else if ((current << 1) < ((ramped_duty[cell] * 125) - 62)  )
+            {
+                if(compensation[cell] < 99)
+                {
+                    ++compensation[cell]; 
+                }
+            }
+            cprev[cell] = current; 
+            cellregs[cell][REG_COMPENSATION] = compensation[cell];
+        }
+        duty[cell] = (int16_t)ramped_duty[cell] + compensation[cell]; //if we aren't too far off the mark, duty stays the same
+    }
+    else if(unitregs[REG_SETTINGS] & SET_VCC_COMPENSATION)
+    {
+        uint32_t temp;
+        INTERRUPT_GlobalInterruptDisable();
+        temp = (uint32_t)((unitregs[REG_VCC] + 16) >> 5) * (uint32_t)ramped_duty[cell] * 625UL;
+        INTERRUPT_GlobalInterruptEnable();
+        duty[cell] = (temp + (262144UL)) >> 19;
     }
     else
     {
-        compensation[cell] = 0;
+        duty[cell] = ramped_duty[cell];
     }
-    cellregs[cell][REG_DUTY] = duty;
+
+    if(ramped_duty[cell] < dutysetpoint) {++ramped_duty[cell];}
+    if(ramped_duty[cell] > dutysetpoint) {--ramped_duty[cell];}
+
+    if(duty[cell] > 512) {duty[cell] = 512;}
+    cellregs[cell][REG_DUTY] = duty[cell];
     switch(cell)
     { 
-        case 0: PWM1_LoadDutyValue(duty); break;
-        case 1: PWM4_LoadDutyValue(duty); break;
-        case 2: PWM3_LoadDutyValue(duty); break;
-        case 3: PWM2_LoadDutyValue(duty); break;
+        case 0: PWM1_LoadDutyValue(duty[cell]); break;
+        case 1: PWM4_LoadDutyValue(duty[cell]); break;
+        case 2: PWM3_LoadDutyValue(duty[cell]); break;
+        case 3: PWM2_LoadDutyValue(duty[cell]); break;
     }
-    cduty[cell] = duty;
 }
 
 void TMR0_ISR(void) //10 Hz
@@ -1033,7 +1081,7 @@ void measurement_handler()
         { 
             
             // Latch in VOLTAGE measurement
-            if(cellregs[timeslice][REG_MODE] == MODE_CHARGE)
+            if(cellregs[timeslice][REG_MODE] == MODE_CHARGE || cellregs[timeslice][REG_MODE] == MODE_CV_CHARGE)
             {
                 cellregs[timeslice][REG_VOLTAGE] = ((vsum[timeslice] << 7) / unitregs[REG_VOLT_CH_CALIB_SCA])  - (int16_t)unitregs[REG_VOLT_CH_CALIB_OFF]; // (value / 1024) *  8 is the same as value >> 7 (registers expect 15 bit measurements))
             }
@@ -1044,7 +1092,7 @@ void measurement_handler()
             if(cellregs[timeslice][REG_VOLTAGE] & 0x8000 && cellregs[timeslice][REG_VOLTAGE] < 0x8E38  ) {cellregs[timeslice][REG_VOLTAGE] = 0x7FFF;} //only small negative voltages allowed.
 
             // Latch in CURRENT measurement
-            if(cellregs[timeslice][REG_MODE] == MODE_CHARGE || cellregs[timeslice][REG_MODE] == MODE_DISCHARGE || cellregs[timeslice][REG_MODE] == MODE_IMPEDANCE)
+            if(cellregs[timeslice][REG_MODE] == MODE_CHARGE || cellregs[timeslice][REG_MODE] == MODE_DISCHARGE || cellregs[timeslice][REG_MODE] == MODE_IMPEDANCE || cellregs[timeslice][REG_MODE] == MODE_CV_CHARGE || cellregs[timeslice][REG_MODE] == MODE_CV_DISCHARGE)
             {
                 c = ((csum[timeslice] << 8) / cellregs[timeslice][REG_CURRENT_CALIB_SCA])  - (int16_t)cellregs[timeslice][REG_CURRENT_CALIB_OFF];
                 v = (cellregs[timeslice][REG_MODE] == MODE_CHARGE) ? (36408L - (int32_t)cellregs[timeslice][REG_VOLTAGE]) : (cellregs[timeslice][REG_VOLTAGE]); 
