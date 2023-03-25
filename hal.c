@@ -15,6 +15,9 @@ volatile uint8_t SINE_COUNTER = 0;
 bool initialized = false;
 extern bool flag_restart;
 
+bool v_is_fresh[4] = {false};
+bool i_is_fresh[4] = {false};
+
 uint8_t SINETABLE[256] = //if mapped directly to duty, this goes from 0 to 4 amps.
 {
 0,0,0,1,1,1,2,2,
@@ -69,6 +72,7 @@ void PAYLOAD2UNITREG(uint8_t addr,uint8_t ee_write,uint8_t eeaddr)
     q.payload[3] = 0x00;
     q.payload[4] = 0x00;
 }
+
 //******************************************************************************
 //* app_initialize
 //******************************************************************************
@@ -479,7 +483,7 @@ void set_flags(uint8_t i)        //use inputs to decide what the next state will
             LED_CMD(i,LED_RAMP_UP);
             if(status & STAT_VOLTAGE_LIMIT_CHG) {mode = MODE_CV_CHARGE;}
             if(unitregs[REG_SETTINGS] & SET_SAFETY_DISABLE){break;}
-            if(status & STAT_VOLTAGE_LIMIT_DCHG) {mode = MODE_STOPPED; error |= ERR_VOLTAGE_LIMIT_DCHG;}
+            // if(status & STAT_VOLTAGE_LIMIT_DCHG) {mode = MODE_STOPPED; error |= ERR_VOLTAGE_LIMIT_DCHG;}
             if(status & STAT_CURRENT_LIMIT_CHG) {mode = MODE_STOPPED; error |= ERR_CURRENT_LIMIT_CHG;}
             if(status & STAT_TEMP_LIMIT_CHG) {mode = MODE_STOPPED; error |= ERR_TEMP_LIMIT_CHG;}
             if(status & STAT_NO_PSU) {mode = MODE_STOPPED; error |= ERR_NO_PSU;}
@@ -505,7 +509,7 @@ void set_flags(uint8_t i)        //use inputs to decide what the next state will
                 }
             }
             if(unitregs[REG_SETTINGS] & SET_SAFETY_DISABLE){break;}
-            if(status & STAT_VOLTAGE_LIMIT_CHG) {mode = MODE_STOPPED; error |= ERR_VOLTAGE_LIMIT_CHG;}
+            // if(status & STAT_VOLTAGE_LIMIT_CHG) {mode = MODE_STOPPED; error |= ERR_VOLTAGE_LIMIT_CHG;}
             if(status & STAT_CURRENT_LIMIT_DCHG) {mode = MODE_STOPPED; error |= ERR_CURRENT_LIMIT_DCHG;}
             if(status & STAT_TEMP_LIMIT_DCHG) {mode = MODE_STOPPED; error |= ERR_TEMP_LIMIT_DCHG;}
             if(status & STAT_LOW_VCC) {mode = MODE_STOPPED; error |= ERR_LOW_VCC;}
@@ -516,7 +520,7 @@ void set_flags(uint8_t i)        //use inputs to decide what the next state will
             LED_CMD(i,LED_RAMP_UP);
             if(unitregs[REG_SETTINGS] & SET_SAFETY_DISABLE){break;}
             // if(status & STAT_VOLTAGE_LIMIT_CHG) {mode = MODE_STOPPED; error |= ERR_VOLTAGE_LIMIT_CHG;}
-            if(status & STAT_VOLTAGE_LIMIT_DCHG) {mode = MODE_STOPPED; error |= ERR_VOLTAGE_LIMIT_DCHG;}
+            // if(status & STAT_VOLTAGE_LIMIT_DCHG) {mode = MODE_STOPPED; error |= ERR_VOLTAGE_LIMIT_DCHG;}
             if(status & STAT_CURRENT_LIMIT_CHG) {mode = MODE_STOPPED; error |= ERR_CURRENT_LIMIT_CHG;}
             if(status & STAT_TEMP_LIMIT_CHG) {mode = MODE_STOPPED; error |= ERR_TEMP_LIMIT_CHG;}
             if(status & STAT_NO_PSU) {mode = MODE_STOPPED; error |= ERR_NO_PSU;}
@@ -525,7 +529,7 @@ void set_flags(uint8_t i)        //use inputs to decide what the next state will
         case MODE_CV_DISCHARGE:
             LED_CMD(i,LED_RAMP_DOWN);
             if(unitregs[REG_SETTINGS] & SET_SAFETY_DISABLE){break;}
-            if(status & STAT_VOLTAGE_LIMIT_CHG) {mode = MODE_STOPPED; error |= ERR_VOLTAGE_LIMIT_CHG;}
+            // if(status & STAT_VOLTAGE_LIMIT_CHG) {mode = MODE_STOPPED; error |= ERR_VOLTAGE_LIMIT_CHG;}
             // if(status & STAT_VOLTAGE_LIMIT_DCHG) {mode = MODE_STOPPED; error |= ERR_VOLTAGE_LIMIT_DCHG;}
             if(status & STAT_CURRENT_LIMIT_DCHG) {mode = MODE_STOPPED; error |= ERR_CURRENT_LIMIT_DCHG;}
             if(status & STAT_TEMP_LIMIT_DCHG) {mode = MODE_STOPPED; error |= ERR_TEMP_LIMIT_DCHG;}
@@ -865,8 +869,6 @@ int16_t SPI_Get12BitSample(uint8_t cell) //50 us
 void SetDuty(uint8_t cell, uint16_t dutysetpoint) //duty should be 15 bit unsigned
 {
     static int8_t compensation[4] = {0};
-    static uint16_t cprev[4] = {0};
-    static uint16_t vprev[4];
     static uint16_t ramped_duty[4] = {0};
     static uint16_t duty[4] = {0};
     uint16_t current;
@@ -884,32 +886,32 @@ void SetDuty(uint8_t cell, uint16_t dutysetpoint) //duty should be 15 bit unsign
         ramped_duty[cell] = 0;
     }
     else if ( cellregs[cell][REG_MODE] == MODE_CV_CHARGE ) {
-        INTERRUPT_GlobalInterruptDisable();
-        voltage = cellregs[cell][REG_VOLTAGE];
-        INTERRUPT_GlobalInterruptEnable();
-        if(voltage != vprev[cell]) {
-            if (voltage > (int16_t)cellregs[cell][REG_VOLTAGE_LIMIT_CHG]) {--duty[cell];}
+        if(v_is_fresh[cell] == true) {
+            INTERRUPT_GlobalInterruptDisable();
+            voltage = cellregs[cell][REG_VOLTAGE];
+            INTERRUPT_GlobalInterruptEnable();
             if (duty[cell] == 0) {cellregs[cell][REG_MODE] = MODE_STOPPED;}
-            vprev[cell] = voltage;
+            else if (voltage > (int16_t)cellregs[cell][REG_VOLTAGE_LIMIT_CHG]) {--duty[cell];}
+            v_is_fresh[cell] = false;
         }
     }
     else if ( cellregs[cell][REG_MODE] == MODE_CV_DISCHARGE ) {
-        INTERRUPT_GlobalInterruptDisable();
-        voltage = cellregs[cell][REG_VOLTAGE];
-        INTERRUPT_GlobalInterruptEnable();
-        if(voltage != vprev[cell]) {
+        if(v_is_fresh[cell] == true) {
+            INTERRUPT_GlobalInterruptDisable();
+            voltage = cellregs[cell][REG_VOLTAGE];
+            INTERRUPT_GlobalInterruptEnable();
             if (voltage < (int16_t)cellregs[cell][REG_VOLTAGE_LIMIT_DCHG]) {--duty[cell];}
             if (duty[cell] == 0) {cellregs[cell][REG_MODE] = MODE_STOPPED;}
-            vprev[cell] = voltage;
+            v_is_fresh[cell] = false;
         }
     }
     else if(unitregs[REG_SETTINGS] & SET_TRIM_OUTPUT)
     {
-        INTERRUPT_GlobalInterruptDisable();
-        current = cellregs[cell][REG_CURRENT];
-        INTERRUPT_GlobalInterruptEnable();
-        if( current != cprev[cell] )
+        if(i_is_fresh[cell] == true)
         {
+            INTERRUPT_GlobalInterruptDisable();
+            current = cellregs[cell][REG_CURRENT];
+            INTERRUPT_GlobalInterruptEnable();
             if( (current << 1) > ((ramped_duty[cell] * 125) + 62)  )
             {  //If we are trying to send less than actual, then send less
                 if(compensation[cell] > -99)
@@ -924,8 +926,8 @@ void SetDuty(uint8_t cell, uint16_t dutysetpoint) //duty should be 15 bit unsign
                     ++compensation[cell]; 
                 }
             }
-            cprev[cell] = current; 
             cellregs[cell][REG_COMPENSATION] = compensation[cell];
+            i_is_fresh[cell] = false;
         }
         duty[cell] = (int16_t)ramped_duty[cell] + compensation[cell]; //if we aren't too far off the mark, duty stays the same
     }
@@ -1017,7 +1019,7 @@ void measurement_handler()
     static uint32_t tsum[4] = {0};
     static uint32_t vccsum = 0;
     static uint16_t v;
-    static uint16_t c;
+    static int32_t c;
     static uint32_t chg = 0;
     
     static uint16_t ctr = 1;
@@ -1036,7 +1038,7 @@ void measurement_handler()
         current = ADC_Get10BitCurrent(timeslice);                              //get the measurements 70 us
         voltage = SPI_Get12BitSample(timeslice); 
         current += ADC_Get10BitCurrent(timeslice);
-        if(current > 2046) //Fuse in danger of blowing - catch and respond to this real fast
+        if(current > 2048) //Fuse in danger of blowing - catch and respond to this real fast
         {
             cellregs[timeslice][REG_MODE] = MODE_STOPPED;
             cellregs[timeslice][REG_ERROR] |= ERR_HW_CURRENT_LIMIT;
@@ -1090,24 +1092,26 @@ void measurement_handler()
                 cellregs[timeslice][REG_VOLTAGE] = ((vsum[timeslice] << 7) / unitregs[REG_VOLT_DC_CALIB_SCA])  - (int16_t)unitregs[REG_VOLT_DC_CALIB_OFF]; // (value / 1024) *  8 is the same as value >> 7 (registers expect 15 bit measurements))
             }
             if(cellregs[timeslice][REG_VOLTAGE] & 0x8000 && cellregs[timeslice][REG_VOLTAGE] < 0x8E38  ) {cellregs[timeslice][REG_VOLTAGE] = 0x7FFF;} //only small negative voltages allowed.
+            v_is_fresh[timeslice] = true;
 
             // Latch in CURRENT measurement
             if(cellregs[timeslice][REG_MODE] == MODE_CHARGE || cellregs[timeslice][REG_MODE] == MODE_DISCHARGE || cellregs[timeslice][REG_MODE] == MODE_IMPEDANCE || cellregs[timeslice][REG_MODE] == MODE_CV_CHARGE || cellregs[timeslice][REG_MODE] == MODE_CV_DISCHARGE)
             {
                 c = ((csum[timeslice] << 8) / cellregs[timeslice][REG_CURRENT_CALIB_SCA])  - (int16_t)cellregs[timeslice][REG_CURRENT_CALIB_OFF];
                 v = ( (cellregs[timeslice][REG_MODE] == MODE_CHARGE) || (cellregs[timeslice][REG_MODE == MODE_CV_CHARGE]) ) ? (36408L - (int32_t)cellregs[timeslice][REG_VOLTAGE]) : (cellregs[timeslice][REG_VOLTAGE]); 
-                v -= ((int32_t)c << 10) / (int32_t)cellregs[timeslice][REG_CURR_LOWV_SCA];
+                v -= (c << 10) / (int32_t)cellregs[timeslice][REG_CURR_LOWV_SCA];
                 if (v < cellregs[timeslice][REG_CURR_LOWV_OFF])
                 {
-                    c = (int32_t)c - ((((int32_t)v - (int32_t)cellregs[timeslice][REG_CURR_LOWV_OFF] )  << 10) ) / (int32_t)cellregs[timeslice][REG_CURR_LOWV_OFF_SCA];  
+                    c -= ((((int32_t)v - (int32_t)cellregs[timeslice][REG_CURR_LOWV_OFF] )  << 10) ) / (int32_t)cellregs[timeslice][REG_CURR_LOWV_OFF_SCA];  
                 }
-                if((int16_t)c < (int16_t)unitregs[REG_ZERO_AMP_THRESH]) {c = 0;} //no negative current allowed. And tiny currents are due to the offset not being appropriate for 0 Amp measurement
+                if(c < (int16_t)unitregs[REG_ZERO_AMP_THRESH]) {c = 0;} //no negative current allowed. And tiny currents are due to the offset not being appropriate for 0 Amp measurement
             }
             else
             {
                 c = 0;
             }
-            cellregs[timeslice][REG_CURRENT] = c;
+            cellregs[timeslice][REG_CURRENT] = (uint16_t)c;
+            i_is_fresh[timeslice] = true;
             
             chg = ((uint32_t)(cellregs[timeslice][REG_CHARGEH]) << 16U) + (uint32_t)cellregs[timeslice][REG_CHARGEL];
             chg += (uint32_t)c;
