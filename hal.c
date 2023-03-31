@@ -880,7 +880,7 @@ void SetDuty(uint8_t cell, uint16_t dutysetpoint) //duty should be 15 bit unsign
     //duty/640 * 5V = 2.048V * reg / 2**15
     //duty * 5 * 2**15 / (640 * 2.048 ) = reg
 
-    if (dutysetpoint == 0) {
+    if ( (cellregs[cell][REG_MODE] == MODE_STOPPED) | (cellregs[cell][REG_MODE] == MODE_IDLE)) {
         compensation[cell] = 0;
         duty[cell] = 0;
         ramped_duty[cell] = 0;
@@ -1019,7 +1019,7 @@ void measurement_handler()
     static uint32_t tsum[4] = {0};
     static uint32_t vccsum = 0;
     static uint16_t v;
-    static int32_t c;
+    static uint16_t c;
     static uint32_t chg = 0;
     
     static uint16_t ctr = 1;
@@ -1102,15 +1102,15 @@ void measurement_handler()
                 v -= (c << 10) / (int32_t)cellregs[timeslice][REG_CURR_LOWV_SCA];
                 if (v < cellregs[timeslice][REG_CURR_LOWV_OFF])
                 {
-                    c -= ((((int32_t)v - (int32_t)cellregs[timeslice][REG_CURR_LOWV_OFF] )  << 10) ) / (int32_t)cellregs[timeslice][REG_CURR_LOWV_OFF_SCA];  
+                    c = (int32_t)c - ((((int32_t)v - (int32_t)cellregs[timeslice][REG_CURR_LOWV_OFF] )  << 10) ) / (int32_t)cellregs[timeslice][REG_CURR_LOWV_OFF_SCA];
                 }
-                if(c < (int16_t)unitregs[REG_ZERO_AMP_THRESH]) {c = 0;} //no negative current allowed. And tiny currents are due to the offset not being appropriate for 0 Amp measurement
+                if((uint32_t)c < (int16_t)unitregs[REG_ZERO_AMP_THRESH]) {c = 0;} //no negative current allowed. And tiny currents are due to the offset not being appropriate for 0 Amp measurement
             }
             else
             {
                 c = 0;
             }
-            cellregs[timeslice][REG_CURRENT] = (uint16_t)c;
+            cellregs[timeslice][REG_CURRENT] = c;
             i_is_fresh[timeslice] = true;
             
             chg = ((uint32_t)(cellregs[timeslice][REG_CHARGEH]) << 16U) + (uint32_t)cellregs[timeslice][REG_CHARGEL];
