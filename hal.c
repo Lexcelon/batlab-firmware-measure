@@ -890,7 +890,7 @@ void SetDuty(uint8_t cell, uint16_t dutysetpoint) //duty should be 15 bit unsign
             INTERRUPT_GlobalInterruptDisable();
             voltage = cellregs[cell][REG_VOLTAGE];
             INTERRUPT_GlobalInterruptEnable();
-            if (duty[cell] == 0) {cellregs[cell][REG_MODE] = MODE_STOPPED;}
+            if (duty[cell] <= 2) {cellregs[cell][REG_MODE] = MODE_STOPPED;}
             else if (voltage > (int16_t)cellregs[cell][REG_VOLTAGE_LIMIT_CHG]) {--duty[cell];}
             v_is_fresh[cell] = false;
         }
@@ -900,8 +900,8 @@ void SetDuty(uint8_t cell, uint16_t dutysetpoint) //duty should be 15 bit unsign
             INTERRUPT_GlobalInterruptDisable();
             voltage = cellregs[cell][REG_VOLTAGE];
             INTERRUPT_GlobalInterruptEnable();
-            if (voltage < (int16_t)cellregs[cell][REG_VOLTAGE_LIMIT_DCHG]) {--duty[cell];}
-            if (duty[cell] == 0) {cellregs[cell][REG_MODE] = MODE_STOPPED;}
+            if (duty[cell] <= 2) {cellregs[cell][REG_MODE] = MODE_STOPPED;}
+            else if (voltage < (int16_t)cellregs[cell][REG_VOLTAGE_LIMIT_DCHG]) {--duty[cell];}
             v_is_fresh[cell] = false;
         }
     }
