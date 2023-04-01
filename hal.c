@@ -1104,7 +1104,7 @@ void measurement_handler()
                 {
                     c = (int32_t)c - ((((int32_t)v - (int32_t)cellregs[timeslice][REG_CURR_LOWV_OFF] )  << 10) ) / (int32_t)cellregs[timeslice][REG_CURR_LOWV_OFF_SCA];
                 }
-                if((uint32_t)c < (int16_t)unitregs[REG_ZERO_AMP_THRESH]) {c = 0;} //no negative current allowed. And tiny currents are due to the offset not being appropriate for 0 Amp measurement
+                if((int32_t)c < (int16_t)unitregs[REG_ZERO_AMP_THRESH]) {c = 0;} //no negative current allowed. And tiny currents are due to the offset not being appropriate for 0 Amp measurement
             }
             else
             {
