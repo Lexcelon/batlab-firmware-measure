@@ -870,7 +870,7 @@ void SetDuty(uint8_t cell, uint16_t dutysetpoint) //duty should be 15 bit unsign
 {
     static int8_t compensation[4] = {0};
     static uint16_t ramped_duty[4] = {0};
-    static uint16_t duty[4] = {0};
+    static int16_t duty[4] = {0};
     uint16_t current;
     uint16_t voltage;
 
@@ -887,22 +887,26 @@ void SetDuty(uint8_t cell, uint16_t dutysetpoint) //duty should be 15 bit unsign
     }
     else if ( cellregs[cell][REG_MODE] == MODE_CV_CHARGE ) {
         if(v_is_fresh[cell] == true) {
+            v_is_fresh[cell] = false;
             INTERRUPT_GlobalInterruptDisable();
             voltage = cellregs[cell][REG_VOLTAGE];
             INTERRUPT_GlobalInterruptEnable();
+            if (voltage > (int16_t)cellregs[cell][REG_VOLTAGE_LIMIT_CHG]) {--duty[cell];}
             if (duty[cell] <= 2) {cellregs[cell][REG_MODE] = MODE_STOPPED;}
-            else if (voltage > (int16_t)cellregs[cell][REG_VOLTAGE_LIMIT_CHG]) {--duty[cell];}
-            v_is_fresh[cell] = false;
         }
     }
     else if ( cellregs[cell][REG_MODE] == MODE_CV_DISCHARGE ) {
         if(v_is_fresh[cell] == true) {
+            v_is_fresh[cell] = false;
             INTERRUPT_GlobalInterruptDisable();
             voltage = cellregs[cell][REG_VOLTAGE];
             INTERRUPT_GlobalInterruptEnable();
+            if ( voltage < (int16_t)cellregs[cell][REG_VOLTAGE_LIMIT_DCHG] ) {
+                // --duty[cell];
+                int16_t diff = (int16_t)cellregs[cell][REG_VOLTAGE_LIMIT_DCHG] - voltage;
+                duty[cell] -= (diff >> 6);
+                }
             if (duty[cell] <= 2) {cellregs[cell][REG_MODE] = MODE_STOPPED;}
-            else if (voltage < (int16_t)cellregs[cell][REG_VOLTAGE_LIMIT_DCHG]) {--duty[cell];}
-            v_is_fresh[cell] = false;
         }
     }
     else if(unitregs[REG_SETTINGS] & SET_TRIM_OUTPUT)
